@@ -1,0 +1,80 @@
+import json
+import os
+import requests
+
+def handler(event, context):
+    try:
+        # Read the ticketId from the URL query parameters
+        ticketId = event.get('queryStringParameters', {}).get('ticketId')
+
+        if not ticketId:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({'message': 'Missing ticketId parameter'})
+            }
+
+        # Set our ticket cache API endpoint.
+        apiUrl = 'https://t2kc19w5te.execute-api.us-east-1.amazonaws.com/prod'
+
+        # Making a request to the API
+        headers = {
+            'Authorization': f"Bearer {os.environ.get('TICKET_TOKEN')}"
+        }
+        response = requests.get(f"{apiUrl}?ticketId={ticketId}", headers=headers)
+
+        # Parsing the JSON response
+        data = response.json()
+
+        id = data['ticket']['id']
+        subject = data['ticket']['subject']
+        name = data['users'][0]['name']
+        email = data['users'][0]['email']
+
+        # This is where you make the magic happen. 
+        # Call an AI model, process the ticket data, etc.
+            
+import openai
+
+# Set your OpenAI API key here
+openai.api_key = 'your_api_key_here'
+
+def enhance_subject(subject):
+    try:
+        # Call the OpenAI API, specifying the model you want to use
+        # Adjust the model based on your specific requirements or preferences
+        response = openai.Completion.create(
+            engine="text-davinci-003",  # You might use "gpt-3.5-turbo" or another available model
+            prompt=f"Improve this subject for better clarity and language: '{subject}'", 
+            max_tokens=60,
+            temperature=0.7
+        )
+        enhanced_subject = response.choices[0].text.strip()
+        return enhanced_subject
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+
+enhanced_subject = enhance_subject(subject)
+
+
+        aiResponse = (
+            f"This is regarding ticket #{id}."
+            f"\n"
+            f"I can see this request is regarding {subject}"
+            f"\n"
+            f"Here is the New Subject {enhanced_subject}"
+        )
+
+        # Returning the JSON response
+        return {
+            'statusCode': 200,
+            'body': json.dumps({'aiResponse': aiResponse})
+        }
+
+    except Exception as error:
+        print('Error:', error)
+
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'message': 'Internal Server Error'})
+        }
