@@ -2,47 +2,100 @@ import requests
 import os
 import openai
 from dotenv import load_dotenv
-
+import json
+import openai
+global_gpt_reply = "test"
 
 # Load the environment variables from the .env file
 load_dotenv()
 
-
 # Set the OpenAI API key from the environment variable
-openai.api_key = os.getenv("OPENAI_API_KEY")
+openai.api_key = ""
 
-
-def get_ticket_subject(ticket_number):
+def get_ticket_sc(ticket_number):
     # Create a session and authenticate with basic auth
     session = requests.Session()
     session.headers = {
         'Authorization': os.getenv("Zendesk_Auth")
     }
 
-
     # Make a GET request to retrieve the ticket details
-    response = session.get(f'http://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/{ticket_number}.json')
-
+    response = session.get(f'http://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/{ticket_number}/side_conversations')
 
     # Check if the request was successful
     if response.status_code == 200:
-        # Extract the subject from the response JSON
         ticket_data = response.json()
-        subject = ticket_data['ticket']['subject']
-        print(subject)
+        print("===TEST===")
+        print(json.dumps(ticket_data, indent = 4))
+
+        sc_list = json.dumps(ticket_data['side_conversations'], indent=4)
+        #print(sc_list)
+        to_mail_one = ticket_data["side_conversations"][0]["participants"][0]["email"]
+        to_mail_two = ticket_data["side_conversations"][0]["participants"][1]["email"]
+        #print(to_mail)
+
+    # Copy the value of the parameter "id" from the JSON response
+        sc_id = ticket_data['side_conversations'][0]['id']
+
+        #print(ticket_data["event"]["to"][0]["email"])
+
+        # print(sc_id)
+                # Find the first side conversation with an "open" state
+                # for sc in ticket_data['side_conversations']:
+                #     if sc['status'] == 'open':
+                #         sc_id = sc['id']
+                #         break
+
+    # Compose Reply Using Open AI
+        filepath = "D:\Trilogy\My Scripts\SC Automation\GPT_Prompt.txt"
+        with open(filepath, 'r', encoding='utf-8') as file:
+            prompt = file.read()
+
+            gptresponse = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": prompt
+                    }
+                ]
+            )
+            global_gpt_reply = gptresponse.choices[0].message['content']
+            #print(gptresponse.choices[0].message['content'])
+            #print(global_gpt_reply)
+
+                
+                # Send the reply to the side conversation on ticket
+                        
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization" : ""
+            }
 
 
-    # Improve Subject Text Using Open AI
-        completion = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-            {"role": "user", "content": f"Print the improved version of the following headline: '{subject}'"}
-            ]
-        )
+
+            jsonBody = {
+                "message": {
+                #"subject": "Testing with Sanket",
+                "body":    global_gpt_reply,
+                "to": [
+                { "email": to_mail_two }
+                #{ "email": }
+                ]
+            }
+            }
+
+            response = requests.request(
+                "POST",
+                #"https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/2707/side_conversations/5c4d37ea-e374-11ee-8ea3-b8d4a49555b0/reply",
+                "https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/" + str(ticket_number) + "/side_conversations/" + sc_id + "/reply",
+                headers=headers,
+                data=json.dumps(jsonBody)
+            )
+
+            print(response.status_code)
+            # print(response.headers)
+            #print(response.text)
 
 
-        print(completion.choices[0].message)
-
-
-# Replace '123' with the actual ticket number you want to retrieve the subject for
-get_ticket_subject(1655)
+get_ticket_sc(2707)
