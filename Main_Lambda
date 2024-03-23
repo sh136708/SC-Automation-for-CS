@@ -3,7 +3,6 @@ import os
 import openai
 from dotenv import load_dotenv
 import json
-import openai
 global_gpt_reply = "test"
 
 # Load the environment variables from the .env file
@@ -25,8 +24,8 @@ def get_ticket_sc(ticket_number):
     # Check if the request was successful
     if response.status_code == 200:
         ticket_data = response.json()
-        print("===TEST===")
-        print(json.dumps(ticket_data, indent = 4))
+        #print("===TEST===")
+        #print(json.dumps(ticket_data, indent = 4))
 
         sc_list = json.dumps(ticket_data['side_conversations'], indent=4)
         #print(sc_list)
@@ -46,13 +45,13 @@ def get_ticket_sc(ticket_number):
                 #         sc_id = sc['id']
                 #         break
 
-    # Compose Reply Using Open AI
-        filepath = "D:\Trilogy\My Scripts\SC Automation\GPT_Prompt.txt"
+    # Compose And Send Reply Using Open AI
+        filepath = "D:\Trilogy\My Scripts\SC Automation\GPT_Prompt_02.txt"
         with open(filepath, 'r', encoding='utf-8') as file:
             prompt = file.read()
 
             gptresponse = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
+                model="gpt-3.5-turbo", 
                 messages=[
                     {
                         "role": "system",
@@ -62,40 +61,38 @@ def get_ticket_sc(ticket_number):
             )
             global_gpt_reply = gptresponse.choices[0].message['content']
             #print(gptresponse.choices[0].message['content'])
-            #print(global_gpt_reply)
+            print(global_gpt_reply)
 
                 
-                # Send the reply to the side conversation on ticket
-                        
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization" : ""
-            }
+            # Send the reply to the side conversation on ticket
+            if "sc_esc tag" not in global_gpt_reply:
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization" : "Basic c3llZC5oYWlkZXJAdHJpbG9neS5jb206UEJtc0ZENVJUVVNaU1Rp"
+                }
 
+                jsonBody = {
+                    "message": {
+                        #"subject": "Testing with Sanket",
+                        "body": global_gpt_reply,
+                        "to": [
+                            { "email": to_mail_two }
+                            #{ "email": }
+                        ]
+                    }
+                }
 
-
-            jsonBody = {
-                "message": {
-                #"subject": "Testing with Sanket",
-                "body":    global_gpt_reply,
-                "to": [
-                { "email": to_mail_two }
-                #{ "email": }
-                ]
-            }
-            }
-
-            response = requests.request(
-                "POST",
-                #"https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/2707/side_conversations/5c4d37ea-e374-11ee-8ea3-b8d4a49555b0/reply",
-                "https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/" + str(ticket_number) + "/side_conversations/" + sc_id + "/reply",
-                headers=headers,
-                data=json.dumps(jsonBody)
-            )
+                response = requests.request(
+                    "POST",
+                    #"https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/2707/side_conversations/5c4d37ea-e374-11ee-8ea3-b8d4a49555b0/reply",
+                    "https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/" + str(ticket_number) + "/side_conversations/" + sc_id + "/reply",
+                    headers=headers,
+                    data=json.dumps(jsonBody)
+                )
 
             print(response.status_code)
-            # print(response.headers)
+            #print(response.headers)
             #print(response.text)
 
 
-get_ticket_sc(2707)
+get_ticket_sc(2712)
