@@ -68,7 +68,7 @@ def get_ticket_sc(ticket_number):
             if "sc_esc tag" not in global_gpt_reply:
                 headers = {
                     "Content-Type": "application/json",
-                    "Authorization" : "Basic c3llZC5oYWlkZXJAdHJpbG9neS5jb206UEJtc0ZENVJUVVNaU1Rp"
+                    "Authorization" : ""
                 }
 
                 jsonBody = {
