@@ -3,19 +3,23 @@ import os
 import openai
 from dotenv import load_dotenv
 import json
-global_gpt_reply = "test"
+import os
 
 # Load the environment variables from the .env file
 load_dotenv()
 
 # Set the OpenAI API key from the environment variable
-openai.api_key = ""
+openai.api_key = " "
 
-def get_ticket_sc(ticket_number):
+
+def lambda_handler(event, context):
+    global_gpt_reply = "test"
+    ticket_number = 2712
+
     # Create a session and authenticate with basic auth
     session = requests.Session()
     session.headers = {
-        'Authorization': os.getenv("Zendesk_Auth")
+        'Authorization': ''
     }
 
     # Make a GET request to retrieve the ticket details
@@ -24,32 +28,20 @@ def get_ticket_sc(ticket_number):
     # Check if the request was successful
     if response.status_code == 200:
         ticket_data = response.json()
-        #print("===TEST===")
-        #print(json.dumps(ticket_data, indent = 4))
-
         sc_list = json.dumps(ticket_data['side_conversations'], indent=4)
-        #print(sc_list)
         to_mail_one = ticket_data["side_conversations"][0]["participants"][0]["email"]
         to_mail_two = ticket_data["side_conversations"][0]["participants"][1]["email"]
-        #print(to_mail)
-
-    # Copy the value of the parameter "id" from the JSON response
         sc_id = ticket_data['side_conversations'][0]['id']
 
-        #print(ticket_data["event"]["to"][0]["email"])
+        # Get the current directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))
 
-        # print(sc_id)
-                # Find the first side conversation with an "open" state
-                # for sc in ticket_data['side_conversations']:
-                #     if sc['status'] == 'open':
-                #         sc_id = sc['id']
-                #         break
+        # Construct the relative path to the file
+        filepath = os.path.join(current_dir, "GPT_Prompt_02.txt")
 
-    # Compose And Send Reply Using Open AI
-        filepath = "D:\Trilogy\My Scripts\SC Automation\GPT_Prompt_02.txt"
+        # Read the file
         with open(filepath, 'r', encoding='utf-8') as file:
-            prompt = file.read()
-
+            prompt = file.read().replace("print(sc_list)", sc_list)
             gptresponse = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo", 
                 messages=[
@@ -60,39 +52,40 @@ def get_ticket_sc(ticket_number):
                 ]
             )
             global_gpt_reply = gptresponse.choices[0].message['content']
-            #print(gptresponse.choices[0].message['content'])
             print(global_gpt_reply)
 
-                
             # Send the reply to the side conversation on ticket
             if "sc_esc tag" not in global_gpt_reply:
                 headers = {
                     "Content-Type": "application/json",
-                    "Authorization" : ""
+                    "Authorization" : " "
                 }
 
                 jsonBody = {
                     "message": {
-                        #"subject": "Testing with Sanket",
                         "body": global_gpt_reply,
                         "to": [
                             { "email": to_mail_two }
-                            #{ "email": }
                         ]
                     }
                 }
 
                 response = requests.request(
                     "POST",
-                    #"https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/2707/side_conversations/5c4d37ea-e374-11ee-8ea3-b8d4a49555b0/reply",
                     "https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/" + str(ticket_number) + "/side_conversations/" + sc_id + "/reply",
                     headers=headers,
                     data=json.dumps(jsonBody)
                 )
 
             print(response.status_code)
-            #print(response.headers)
-            #print(response.text)
 
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Lambda function executed successfully!')
+    }
 
-get_ticket_sc(2712)
+# Call the lambda function for a demo run
+event = {}
+context = {}
+# Remove the unnecessary line
+lambda_handler(event, context)
