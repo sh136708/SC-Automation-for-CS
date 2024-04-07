@@ -3,14 +3,14 @@ import os
 import openai
 from dotenv import load_dotenv
 import json
-import os
+from openai import OpenAI
 
 # Load the environment variables from the .env file
 load_dotenv()
 
 # Set the OpenAI API key from the environment variable
-openai.api_key = " "
-
+openai.api_key = ""
+client = openai.OpenAI(api_key="")
 
 def lambda_handler(event, context):
     global_gpt_reply = "test"
@@ -40,52 +40,52 @@ def lambda_handler(event, context):
         filepath = os.path.join(current_dir, "GPT_Prompt_02.txt")
 
         # Read the file
-        with open(filepath, 'r', encoding='utf-8') as file:
+        with open(filepath, 'r') as file:
             prompt = file.read().replace("print(sc_list)", sc_list)
-            gptresponse = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo", 
+            gptresponse = client.chat.completions.create(
+                model="gpt-4",
                 messages=[
-                    {
-                        "role": "system",
-                        "content": prompt
-                    }
-                ]
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": prompt}  # Assuming you want the entire file content as the user's prompt
+                    ],
+                max_tokens=100
             )
-            global_gpt_reply = gptresponse.choices[0].message['content']
+            global_gpt_reply = gptresponse.choices[0].message.content
             print(global_gpt_reply)
+        print(global_gpt_reply)
 
-            # Send the reply to the side conversation on ticket
-            if "sc_esc tag" not in global_gpt_reply:
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization" : " "
+        # Send the reply to the side conversation on ticket
+        if "sc_esc tag" not in global_gpt_reply:
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization" : ""
+            }
+
+            jsonBody = {
+                "message": {
+                    "body": global_gpt_reply,
+                    "to": [
+                        { "email": to_mail_two }
+                    ]
                 }
+            }
 
-                jsonBody = {
-                    "message": {
-                        "body": global_gpt_reply,
-                        "to": [
-                            { "email": to_mail_two }
-                        ]
-                    }
-                }
+            response = requests.request(
+                "POST",
+                f"https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/{ticket_number}/side_conversations/{sc_id}/reply",
+                headers=headers,
+                data=json.dumps(jsonBody)
+            )
 
-                response = requests.request(
-                    "POST",
-                    "https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/" + str(ticket_number) + "/side_conversations/" + sc_id + "/reply",
-                    headers=headers,
-                    data=json.dumps(jsonBody)
-                )
-
-            print(response.status_code)
+        print(response.status_code)
 
     return {
         'statusCode': 200,
         'body': json.dumps('Lambda function executed successfully!')
     }
 
-# Call the lambda function for a demo run
-event = {}
-context = {}
-# Remove the unnecessary line
-lambda_handler(event, context)
+# Assuming this is for demonstration purposes outside AWS Lambda
+if __name__ == "__main__":
+    event = {}
+    context = {}
+    lambda_handler(event, context)
