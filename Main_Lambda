@@ -13,8 +13,24 @@ openai.api_key = ""
 client = openai.OpenAI(api_key="")
 
 def lambda_handler(event, context):
+    # Parse the incoming JSON payload
+    if 'body' in event:
+        body = json.loads(event['body'])
+        ticket_number = body.get('ticket_number')
+        if ticket_number is None:
+            return {
+                'statusCode': 400,
+                'body': json.dumps('No ticket_number provided.')
+            }
+    else:
+        return {
+            'statusCode': 400,
+            'body': json.dumps('No ticket_number provided in the request body.')
+        }
+
     global_gpt_reply = "test"
-    ticket_number = 2712
+    #ticket_number = 2712
+    print("The ticket number is", ticket_number)
 
     # Create a session and authenticate with basic auth
     session = requests.Session()
