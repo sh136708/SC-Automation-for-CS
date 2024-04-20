@@ -4,6 +4,17 @@ import openai
 from dotenv import load_dotenv
 import json
 from openai import OpenAI
+import json
+import gspread
+from google.oauth2.service_account import Credentials
+from datetime import datetime
+
+#Google Sheet Setup
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+SPREADSHEET_ID = '1fyju79jKHCDI7C2YAv-QbrqUnZ0g1sNccLuvao0o_AQ'
+SHEET_NAME = 'SCAutomationLog'
+CREDENTIALS_FILE = 'SC Automation\gssecret001.json'
+gscredentials = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
 
 # Load the environment variables from the .env file
 load_dotenv()
@@ -20,7 +31,7 @@ def lambda_handler(event, context):
         if ticket_number is None:
             return {
                 'statusCode': 400,
-                'body': json.dumps('No ticket_number provided.')
+                'body': json.dumps('No ticket_number provided in the request body.')
             }
     else:
         return {
@@ -28,9 +39,23 @@ def lambda_handler(event, context):
             'body': json.dumps('No ticket_number provided in the request body.')
         }
 
+    # Initialize the Google Sheets client
+    gc = gspread.authorize(gscredentials)
+
+    # Open the Google Sheet
+    sh = gc.open_by_key('1fyju79jKHCDI7C2YAv-QbrqUnZ0g1sNccLuvao0o_AQ')
+    worksheet = sh.worksheet('Sheet1')
+
+    # Prepare data to write
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    row_data = [current_time, ticket_number]
+
+    # Append the data to the sheet
+    worksheet.append_row(row_data)
+
     global_gpt_reply = "test"
     #ticket_number = 2712
-    print("The ticket number is", ticket_number)
+    #print("The ticket number is", ticket_number)
 
     # Create a session and authenticate with basic auth
     session = requests.Session()
@@ -41,19 +66,27 @@ def lambda_handler(event, context):
     # Make a GET request to retrieve the ticket details
     response = session.get(f'http://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/{ticket_number}/side_conversations')
 
-    # Check if the request was successful
-    if response.status_code == 200:
-        ticket_data = response.json()
+    # Check if the request was successful and retrive SC data
+    ticket_data = response.json()
+    #print(ticket_data)
+
+    open_sc_count = sum(sc['state'] == 'open' for sc in ticket_data['side_conversations'])
+    if open_sc_count > 1:
+        SC_Status = "More than one open SC was found, so SC automation is not taking any steps on the ticket"
+        global_gpt_reply = "No GPT call made"
+    else:
+        SC_Status = "One open SC was found, so SC automation will work further on the ticket"
         sc_list = json.dumps(ticket_data['side_conversations'], indent=4)
         to_mail_one = ticket_data["side_conversations"][0]["participants"][0]["email"]
         to_mail_two = ticket_data["side_conversations"][0]["participants"][1]["email"]
         sc_id = ticket_data['side_conversations'][0]['id']
+        
 
         # Get the current directory
         current_dir = os.path.dirname(os.path.abspath(__file__))
 
         # Construct the relative path to the file
-        filepath = os.path.join(current_dir, "GPT_Prompt_02.txt")
+        filepath = os.path.join(current_dir, "GPT_Prompt_03.txt")
 
         # Read the file
         with open(filepath, 'r') as file:
@@ -66,42 +99,58 @@ def lambda_handler(event, context):
                     ],
                 max_tokens=100
             )
-            global_gpt_reply = gptresponse.choices[0].message.content
-            print(global_gpt_reply)
-        print(global_gpt_reply)
+            global_gpt_reply = gptresponse.choices[0].message.content.strip('"')
 
-        # Send the reply to the side conversation on ticket
-        if "sc_esc tag" not in global_gpt_reply:
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization" : ""
-            }
+        # # Send the reply to the side conversation on ticket
+        # if "sc_esc tag" not in global_gpt_reply:
+        #     headers = {
+        #         "Content-Type": "application/json",
+        #         "Authorization" : ""
+        #     }
 
-            jsonBody = {
-                "message": {
-                    "body": global_gpt_reply,
-                    "to": [
-                        { "email": to_mail_two }
-                    ]
-                }
-            }
+        #     jsonBody = {
+        #         "message": {
+        #             "body": global_gpt_reply,
+        #             "to": [
+        #                 { "email": to_mail_two }
+        #             ]
+        #         }
+        #     }
 
-            response = requests.request(
-                "POST",
-                f"https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/{ticket_number}/side_conversations/{sc_id}/reply",
-                headers=headers,
-                data=json.dumps(jsonBody)
-            )
+        #     response = requests.request(
+        #         "POST",
+        #         f"https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/{ticket_number}/side_conversations/{sc_id}/reply",
+        #         headers=headers,
+        #         data=json.dumps(jsonBody)
+        #     )
+        # #print(response.status_code)
 
-        print(response.status_code)
-
-    return {
-        'statusCode': 200,
-        'body': json.dumps('Lambda function executed successfully!')
+    # Print Actions and responses in the Zendesk's ticket's Internal Note
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization" : "p"
     }
+
+    jsonBody = {
+        "ticket": {
+            "comment": {
+            "body": f"SC Status: {SC_Status}\n\n GPT Reply: {global_gpt_reply}",
+            "public": False
+            }
+        }
+    }
+
+    response = requests.request(
+        "PUT",
+        f"https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/{ticket_number}",
+        headers=headers,
+        data=json.dumps(jsonBody)
+    )
 
 # Assuming this is for demonstration purposes outside AWS Lambda
 if __name__ == "__main__":
-    event = {}
+    event = {
+        "body": json.dumps({"ticket_number": "2712"})
+    }
     context = {}
     lambda_handler(event, context)
