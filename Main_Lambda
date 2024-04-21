@@ -9,6 +9,10 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 
+#Authentication
+OPENAI_API_KEY = ""
+ZENDESK_API_KEY = ""
+
 #Google Sheet Setup
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 SPREADSHEET_ID = '1fyju79jKHCDI7C2YAv-QbrqUnZ0g1sNccLuvao0o_AQ'
@@ -20,8 +24,8 @@ gscredentials = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=S
 load_dotenv()
 
 # Set the OpenAI API key from the environment variable
-openai.api_key = ""
-client = openai.OpenAI(api_key="")
+openai.api_key = OPENAI_API_KEY
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 def lambda_handler(event, context):
     # Parse the incoming JSON payload
@@ -60,7 +64,7 @@ def lambda_handler(event, context):
     # Create a session and authenticate with basic auth
     session = requests.Session()
     session.headers = {
-        'Authorization': ''
+        'Authorization': ZENDESK_API_KEY
     }
 
     # Make a GET request to retrieve the ticket details
@@ -105,7 +109,7 @@ def lambda_handler(event, context):
         # if "sc_esc tag" not in global_gpt_reply:
         #     headers = {
         #         "Content-Type": "application/json",
-        #         "Authorization" : ""
+        #         "Authorization" : "Basic c3llZC5oYWlkZXJAdHJpbG9neS5jb206UEJtc0ZENVJUVVNaU1Rp"
         #     }
 
         #     jsonBody = {
@@ -128,7 +132,7 @@ def lambda_handler(event, context):
     # Print Actions and responses in the Zendesk's ticket's Internal Note
     headers = {
         "Content-Type": "application/json",
-        "Authorization" : ""
+        "Authorization" : ZENDESK_API_KEY
     }
 
     jsonBody = {
@@ -147,22 +151,25 @@ def lambda_handler(event, context):
         data=json.dumps(jsonBody)
     )
     
+    # Put ticket on Hold if the SC reply is meaningless
     if "MEANINGLESS" in global_gpt_reply:
         headers = {
             "Content-Type": "application/json",
-            "Authorization" : ""
+            "Authorization" : ZENDESK_API_KEY
         }
 
         jsonBody = {
             "ticket": {
                 "status": "hold"
+                #"ON-HOLD - Hours Offset", "value": "24"
+                #"ON-HOLD - Reason", "value": "SC Automation - GPT Reply is meaningless"
             },
-            "ticket_field": {
-                "custom_field_options": [
-                    {"name": "ON-HOLD - Hours Offset", "value": "24"},
-                    {"name": "ON-HOLD - Reason", "value": "SC Automation - GPT Reply is meaningless"}
-                ]
-            }
+            # "custom_fields": [
+            #         {"id": "17570877987218", "value": "24"},
+            #         {"id": "17570896496402", "value": "SC Automation - GPT Reply is meaningless"}
+            #     ],
+            # "tags": ["apply_hold_macro"]
+
         }
 
         response = requests.request(
