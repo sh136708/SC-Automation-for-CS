@@ -124,11 +124,11 @@ def lambda_handler(event, context):
         #         data=json.dumps(jsonBody)
         #     )
         # #print(response.status_code)
-
+        
     # Print Actions and responses in the Zendesk's ticket's Internal Note
     headers = {
         "Content-Type": "application/json",
-        "Authorization" : "p"
+        "Authorization" : ""
     }
 
     jsonBody = {
@@ -146,6 +146,32 @@ def lambda_handler(event, context):
         headers=headers,
         data=json.dumps(jsonBody)
     )
+    
+    if "MEANINGLESS" in global_gpt_reply:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization" : ""
+        }
+
+        jsonBody = {
+            "ticket": {
+                "status": "hold"
+            },
+            "ticket_field": {
+                "custom_field_options": [
+                    {"name": "ON-HOLD - Hours Offset", "value": "24"},
+                    {"name": "ON-HOLD - Reason", "value": "SC Automation - GPT Reply is meaningless"}
+                ]
+            }
+        }
+
+        response = requests.request(
+            "PUT",
+            f"https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/{ticket_number}",
+            headers=headers,
+            data=json.dumps(jsonBody)
+        )
+
 
 # Assuming this is for demonstration purposes outside AWS Lambda
 if __name__ == "__main__":
