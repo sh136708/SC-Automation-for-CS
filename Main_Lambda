@@ -2,16 +2,16 @@ import requests
 import os
 import openai
 from dotenv import load_dotenv
-import json
 from openai import OpenAI
 import json
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
+import base64
 
 #Authentication
-OPENAI_API_KEY = ""
-ZENDESK_API_KEY = ""
+OPENAI_API_KEY = 
+ZENDESK_API_KEY = 
 
 #Google Sheet Setup
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
@@ -57,21 +57,27 @@ def lambda_handler(event, context):
     # Append the data to the sheet
     worksheet.append_row(row_data)
 
+    #Initialize variables
     global_gpt_reply = "test"
-    #ticket_number = 2712
+    gpt_sc_reply = "test" 
     #print("The ticket number is", ticket_number)
 
     # Create a session and authenticate with basic auth
     session = requests.Session()
+    credentials = base64.b64encode(f"ai-zd-integration@trilogy.com/token:{ZENDESK_API_KEY}".encode("utf-8")).decode("utf-8")
     session.headers = {
-        'Authorization': ZENDESK_API_KEY
+        'Authorization':  f"Basic {credentials}"
     }
 
     # Make a GET request to retrieve the ticket details
-    response = session.get(f'http://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/{ticket_number}/side_conversations')
+    response = session.get(f'https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}/side_conversations')
 
     # Check if the request was successful and retrive SC data
-    ticket_data = response.json()
+    if response.status_code == 200:
+        ticket_data = response.json()
+    else:
+        print(f"Failed to fetch data: {response.status_code}")
+
     #print(ticket_data)
 
     open_sc_count = sum(sc['state'] == 'open' for sc in ticket_data['side_conversations'])
@@ -84,13 +90,12 @@ def lambda_handler(event, context):
         to_mail_one = ticket_data["side_conversations"][0]["participants"][0]["email"]
         to_mail_two = ticket_data["side_conversations"][0]["participants"][1]["email"]
         sc_id = ticket_data['side_conversations'][0]['id']
-        
 
         # Get the current directory
         current_dir = os.path.dirname(os.path.abspath(__file__))
 
         # Construct the relative path to the file
-        filepath = os.path.join(current_dir, "GPT_Prompt_03.txt")
+        filepath = os.path.join(current_dir, "GPT_Prompt_04.txt")
 
         # Read the file
         with open(filepath, 'r') as file:
@@ -103,36 +108,80 @@ def lambda_handler(event, context):
                     ],
                 max_tokens=100
             )
-            global_gpt_reply = gptresponse.choices[0].message.content.strip('"')
+            global_gpt_reply = gptresponse.choices[0].message.content #.strip('"')
 
-        # # Send the reply to the side conversation on ticket
-        # if "sc_esc tag" not in global_gpt_reply:
-        #     headers = {
-        #         "Content-Type": "application/json",
-        #         "Authorization" : "Basic c3llZC5oYWlkZXJAdHJpbG9neS5jb206UEJtc0ZENVJUVVNaU1Rp"
-        #     }
+        # Send the reply to the side conversation on ticket If there was no resonse in the SC
+        if "NO RESPONSE" in global_gpt_reply:
+            # Strip "###" and anything before it from global_gpt_reply
+            gpt_sc_reply = global_gpt_reply.split("###")[-1].strip()
+            #print(gpt_sc_reply)
 
-        #     jsonBody = {
-        #         "message": {
-        #             "body": global_gpt_reply,
-        #             "to": [
-        #                 { "email": to_mail_two }
-        #             ]
-        #         }
-        #     }
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization" : f"Basic {credentials}"
+            }
 
-        #     response = requests.request(
-        #         "POST",
-        #         f"https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/{ticket_number}/side_conversations/{sc_id}/reply",
-        #         headers=headers,
-        #         data=json.dumps(jsonBody)
-        #     )
-        # #print(response.status_code)
-        
-    # Print Actions and responses in the Zendesk's ticket's Internal Note
+            jsonBody = {
+                "message": {
+                    "body": gpt_sc_reply,
+                    "to": [
+                        { "email": to_mail_two }
+                    ]
+                }
+            }
+
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization" : f"Basic {credentials}"
+            }
+
+            jsonBody = {
+                "ticket": {
+                    "status": "hold",
+                    "custom_fields": [
+                        {"id": "360005123419", "value": "1"},
+                        {"id": "360004438434", "value": "SC Automation - SC Reply is meaningless"}
+                    ]    
+                }
+            }
+
+            response = requests.request(
+                "PUT",
+                f"https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}/side_conversations/{sc_id}/reply",
+                headers=headers,
+                data=json.dumps(jsonBody)
+            )
+        #print(response.status_code)
+           
+    # Put ticket on Hold if the SC reply is meaningless
+    if "MEANINGLESS" in global_gpt_reply:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization" : f"Basic {credentials}"
+        }
+
+        jsonBody = {
+            "ticket": {
+                "status": "hold",
+                "custom_fields": [
+                  {"id": "360005123419", "value": "1"},
+                  {"id": "360004438434", "value": "SC Automation - SC Reply is meaningless"}
+                 ],
+                #"tags": ["apply_hold_macro"]
+            }    
+        }
+
+        response = requests.request(
+            "PUT",
+            f"https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}",
+            headers=headers,
+            data=json.dumps(jsonBody)
+        )
+    
+    # Print actions in an internal note
     headers = {
         "Content-Type": "application/json",
-        "Authorization" : ZENDESK_API_KEY
+        "Authorization" : f"Basic {credentials}"
     }
 
     jsonBody = {
@@ -146,44 +195,18 @@ def lambda_handler(event, context):
 
     response = requests.request(
         "PUT",
-        f"https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/{ticket_number}",
+        f"https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}",
         headers=headers,
         data=json.dumps(jsonBody)
     )
-    
-    # Put ticket on Hold if the SC reply is meaningless
-    if "MEANINGLESS" in global_gpt_reply:
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization" : ZENDESK_API_KEY
-        }
 
-        jsonBody = {
-            "ticket": {
-                "status": "hold"
-                #"ON-HOLD - Hours Offset", "value": "24"
-                #"ON-HOLD - Reason", "value": "SC Automation - GPT Reply is meaningless"
-            },
-            # "custom_fields": [
-            #         {"id": "17570877987218", "value": "24"},
-            #         {"id": "17570896496402", "value": "SC Automation - GPT Reply is meaningless"}
-            #     ],
-            # "tags": ["apply_hold_macro"]
 
-        }
-
-        response = requests.request(
-            "PUT",
-            f"https://centralsupportdesk1657134016.zendesk.com/api/v2/tickets/{ticket_number}",
-            headers=headers,
-            data=json.dumps(jsonBody)
-        )
 
 
 # Assuming this is for demonstration purposes outside AWS Lambda
 if __name__ == "__main__":
     event = {
-        "body": json.dumps({"ticket_number": "2712"})
+        "body": json.dumps({"ticket_number": "4318902"})
     }
     context = {}
     lambda_handler(event, context)
