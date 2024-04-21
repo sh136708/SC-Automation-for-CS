@@ -68,7 +68,7 @@ If you determine that the last reply in the the SIDE CONVERSATION JSON is "meani
   Print this text EXACTlY without printing or saying anything else: "The last response in SC is MEANINGFUL. Open ticket and remove the sc_esc tag so that an agent can review and work on it".
 
 If the last reply in the the SIDE CONVERSATION JSON is a "meaningless" response:
-  Print this text EXACTlY without printing or saying anything else: "The last response in SC is MEANINGLESS. Put this ticket back on hold.
+  Print this text EXACTlY without printing or saying anything else: "The last response in SC is MEANINGLESS. Putting this ticket back on hold.
 
 Just share one reply response that can be copied and pasted. Do not provide options or explain. Do not do the following:  
   Include any introductory statements or anything other than the message that needs to be sent as the reply.
