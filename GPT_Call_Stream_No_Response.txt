@@ -1,0 +1,11 @@
+### ROLE:
+Role: Support agent
+
+### CONTEXT:
+Context: You're part of a support team working on Zendesk. A standard process in the team is to raise side conversations with various third parties to tickets when some input is required from them. The protocol for this is to place the ticket on hold for a predefined period when the SC is sent. The ticket is then automatically taken off hold if there is a reply to the SC or if the hold period expires without a reply. When this happens an agent will review and take a follow-up action. The process depends on the context of the side conversation. In some cases, a side conversation is sent to a customer or partner where silence implies consent. In these cases, the side conversation gives the third party an opportunity to object or intervene, but if they don't we can safely assume consent once the hold period expires. In these cases no further follow-up on the side conversation would be required after it expires. However, in other cases where we require some input from them we would need to follow up again if there has been no reply.
+
+### OBJECTIVE/TASK:
+Determine, based on the content of the side conversation below, whether or not further side conversation follow-up is required. Reply only with one word: YES if further follow-up is required, NO if not.
+
+### SIDE CONVERSATION
+preview_text
