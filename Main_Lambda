@@ -9,6 +9,7 @@ from google.oauth2.service_account import Credentials
 import datetime
 from datetime import datetime, timezone
 import base64
+import gspread
 
 #Authentication
 OPENAI_API_KEY = ""
@@ -45,9 +46,7 @@ def lambda_handler(event, context):
         }
 
     #Initialize variables
-    sc_data = "test"
-    global_gpt_reply = "test"
-    gpt_sc_reply = "test" 
+    global_gpt_reply = "None"
 
     # Create a session and authenticate with basic auth
     session = requests.Session()
@@ -84,11 +83,6 @@ def lambda_handler(event, context):
         sc_data = response.json()
     else:
         print(f"Failed to fetch sc data: {response.status_code}")
-    
-    #clean and write sc_data to a json file "sc_data_output.json"
-    sc_data_clean = json.dumps(sc_data, indent=4)
-    with open('sc_data_output.json', 'w') as f:
-        f.write(sc_data_clean)
 
     #Identify the time of the last event in the SC
     last_response_time = sc_data['events'][-1]['created_at']
@@ -124,10 +118,11 @@ def lambda_handler(event, context):
     
     if response.status_code == 200:
         ticket_gen_data = response.json()
-        #print(ticket_gen_data)
-        # Find the brand value (Temporarily using On-Hold Reason field ID until I find the brand ID)
-        custom_fields = ticket_gen_data['ticket']['custom_fields']
-        ticket_brand = next((field['value'] for field in custom_fields if field['id'] == int(360004438434)), None)
+        # Find the brand_id field
+        brand_id = ticket_gen_data['ticket'].get('brand_id', None)
+        # Set the value of ticket_brand
+        ticket_brand = brand_id #Call Stream brand ID 360002486020 #Symphony Call ID is 360001065314
+        
         print("Ticket Brand:", ticket_brand)
     else:
         print(f"Failed to fetch sc data: {response.status_code}")
@@ -139,7 +134,7 @@ def lambda_handler(event, context):
     current_time_new = datetime.fromisoformat(current_time_str.replace('Z', '+00:00'))
     last_response_time_new = datetime.fromisoformat(last_response_time_str.replace('Z', '+00:00'))
     time_difference = current_time_new - last_response_time_new
-    hours_elapsed = 80 #round(time_difference.total_seconds() / 3600)
+    hours_elapsed = 0 #round(time_difference.total_seconds() / 3600)
     print('Hours elapsed:', hours_elapsed)
 
     # Hard coded the default hold hours
@@ -191,14 +186,7 @@ def lambda_handler(event, context):
             f"https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}",
             headers=headers,
             data=json.dumps(jsonBody)
-        )
-        
-        # Initialize the Google Sheets client
-        gc = gspread.authorize(gscredentials)
-        sh = gc.open_by_key('1fyju79jKHCDI7C2YAv-QbrqUnZ0g1sNccLuvao0o_AQ') # Open the Google Sheet
-        worksheet = sh.worksheet('Sheet1')
-        row_data = [current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply]
-        worksheet.append_row(row_data) # Append the data to the sheet
+        )    
     
     # Function to reply in SC
     def reply_in_SC(credentials, recipients, sc_reply, sc_id, ticket_number):
@@ -252,38 +240,53 @@ def lambda_handler(event, context):
 
     #Call GPT
     def call_gpt(filename):
-        # Get the current directory
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        filepath = os.path.join(current_dir, filename)
-        data = json.loads(sc_data_clean) #sc_data_clean
+        #clean sc_data
+        sc_data_clean = json.dumps(sc_data, indent=4)
+       
+        #write sc_data_clean to a json file "sc_data_output.json"
+        with open('sc_data_output.json', 'w') as f:
+            f.write(sc_data_clean)
+
+        data = json.loads(sc_data_clean)
         
         # Get the last message in SC Data
         def find_preview_text_after_last_response_time(data, last_response_time):
-        
-            for entry in data.get("message", []):
-                if entry.get("created_at") == last_response_time:
-                    preview_text = entry.get("preview_text")
-                    print("preview_text:", preview_text)
-                    return
-            print("No matching 'created_at' found.")
+            for event in data["events"]:
+                # Check if the 'created_at' matches the target date
+                if event["created_at"] == last_response_time:
+                    # If a match is found, print the 'preview_text' from the 'message'
+                    return(event['message']['preview_text'])
+                    # Remove the break statement
+                else:
+                    print("No matching 'created_at' found.")
         
         last_response_text = find_preview_text_after_last_response_time(data, last_response_time)
-        print(last_response_text)
+        print('Last message in SC:', last_response_text)
 
-        # Prompt GPT (To Fix)
+        # Prompt GPT
+        current_dir = os.path.dirname(os.path.abspath(__file__)) # Get the current directory
+        filepath = os.path.join(current_dir, filename)
         with open(filepath, 'r') as file:
-            prompt = file.read().replace("preview_text", last_response_text)
+            prompt = file.read().replace("last_response_text", last_response_text)
             gptresponse = client.chat.completions.create(
-                model="gpt-3.5 turbo",
+                model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant."},
                     {"role": "user", "content": prompt}  # Assuming you want the entire file content as the user's prompt
                 ],
                 max_tokens=100
             )
-            global_gpt_reply = gptresponse.choices[0].message.content.strip('"')
-
-        return global_gpt_reply
+            gpt_reply = gptresponse.choices[0].message.content
+            return gpt_reply
+            #print("GPT Verdict:", gpt_reply)
+    
+    #Function to write to GSHEET
+    def write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply):
+        gc = gspread.authorize(gscredentials)
+        sh = gc.open_by_key('1fyju79jKHCDI7C2YAv-QbrqUnZ0g1sNccLuvao0o_AQ')
+        worksheet = sh.worksheet('Sheet1')
+        row_data = [current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply]
+        worksheet.append_row(row_data)
     
     # Check if the last Activity in SC is a No response scenario
     if hours_elapsed > 1: # This needs to be "> 1" If the answer is Yes, then its a No response in SC scenario and following actions need to be applied.
@@ -292,33 +295,32 @@ def lambda_handler(event, context):
             SC_Status = "No response in SC. However, it has been less than 72 hours since last resposne, so putting the ticket on hold for 72+ hours"
             onhold_reason = "SC Automation - No Response in SC in less than 72 hours"
 
-            # Print actions in an internal note
             print_action_IN(credentials, SC_Status, ticket_number)
-
-            # Function to put the ticket on hold
             put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number)
+            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
 
-        if hours_elapsed > default_hold_hours and ticket_brand != "SC Automation - No Response in SC in more than 72 hours - Follow up in SC": #If hours_elapsed > 72 and it is not CallStream Support, then put the ticket on hold for hours_elapsed-12 hours without a reply in SC
+        if hours_elapsed > default_hold_hours and ticket_brand != 360002486020: #If hours_elapsed > 72 and it is not CallStream Support, then put the ticket on hold for hours_elapsed-12 hours without a reply in SC
             hold_value = default_hold_hours - 12;
             SC_Status = "No response in SC. However, it has been MORE than 72 hours since last resposne, so I am sending a Followup in SC and putting the ticket on hold for 72- hours"
             onhold_reason = "SC Automation - No Response in SC in more than 72 hours - Follow up in SC"
             sc_reply = "Dear, Team\n\nWe are waiting to hear from you. Please provide an update on the same.\n\nThank you."
             
             reply_in_SC(credentials, recipients, sc_reply, sc_id, ticket_number)
-
             print_action_IN(credentials, SC_Status, ticket_number)
-
             put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number)
+            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
 
         #if hours_elapsed > 72 and ticket_brand = "CallStream Support":
-        if hours_elapsed > default_hold_hours and ticket_brand == "SC Automation - No Response in SC in more than 72 hours - Follow up in SC":
+        if hours_elapsed > default_hold_hours and ticket_brand == 360002486020:
             filename = "GPT_Call_Stream_No_Response.txt"
             call_gpt(filename)
+            global_gpt_reply = call_gpt(filename)
             print(global_gpt_reply)
-            
+                        
             if global_gpt_reply == "NO":
                 SC_Status = "No response in SC. This is callStream and it has been MORE than 72 hours since last response, so I engaged GPT to determine if a follow up is needed. GPT answered, no. So I am closing this ticket."
                 print_action_IN(credentials, SC_Status, ticket_number)
+                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
                 #close the ticket
                 headers = {
                     "Content-Type": "application/json",
@@ -339,23 +341,22 @@ def lambda_handler(event, context):
                 )
                 
 
-            if global_gpt_reply == "Yes":
+            if global_gpt_reply == "YES":
                 SC_Status = "No response in SC. This is callStream and it has been MORE than 72 hours since last response, so I engaged GPT to determine if a follow up is needed. GPT answered, yes. So I am following up and putting this ticket on hold for 72- hours."
                 hold_value = default_hold_hours - 12;
                 onhold_reason = "SC Automation - No Response in SC in more than 72 hours - CallStream Support"
                 sc_reply = "Dear, Team\n\nWe are waiting to hear from you. Please provide an update on the same.\n\nThank you."
+
                 reply_in_SC(credentials, recipients, sc_reply, sc_id, ticket_number)
                 print_action_IN(credentials, SC_Status, ticket_number)
                 put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number)
+                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
             
-            
-            print_action_IN(credentials, SC_Status, ticket_number)
-            put_ticket_on_hold(credentials, default_hold_hours, onhold_reason, ticket_number)
-
     # Check if the last Message in SC is MEANGINGLESS/MEANINGFULL 
     if hours_elapsed < 1:
         filename = "GPT_Prompt_05.txt"
         call_gpt(filename)
+        global_gpt_reply = call_gpt(filename)
         print(global_gpt_reply)
 
         if "MEANINGLESS" in global_gpt_reply:
@@ -365,6 +366,7 @@ def lambda_handler(event, context):
             
             print_action_IN(credentials, SC_Status, ticket_number)
             put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number)
+            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
 
         if "MEANINGFUL" in global_gpt_reply:
             SC_Status = "MEANINGFUL reply in SC. Leaving the ticket open and removing the sc_esc tag"
@@ -388,7 +390,9 @@ def lambda_handler(event, context):
                     headers=headers,
                     data=json.dumps(jsonBody)
                 )
+                
             put_ticket_on_open(credentials, ticket_number)
+            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
 
             def remove_sc_esc_tag(credentials, ticket_number):
                 headers = {
@@ -408,9 +412,10 @@ def lambda_handler(event, context):
                     headers=headers,
                     data=json.dumps(jsonBody)
                 )
-            remove_sc_esc_tag(credentials, ticket_number)
 
+            remove_sc_esc_tag(credentials, ticket_number)
             print_action_IN(credentials, SC_Status, ticket_number)
+            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
 
 # Assuming this is for demonstration purposes outside AWS Lambda
 if __name__ == "__main__":
