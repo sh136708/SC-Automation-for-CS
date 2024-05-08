@@ -3,70 +3,77 @@
 • Side conversations are usually started to ask for infromation, confirmation or approval, etc from a seperate team. 
 • In this case, the support team is waiting to hear back from a seperate team before it can start working on the customer's request.
 • The SIDE CONVERSATION section has the text found in the body of the last response email received from the seperate team. 
-• It contains the last reponse message and may be followed by previous conversation history.
-• It can also contain elements like "/n" or "[image image.png]" which must be ignored.    
-
-• Here are some example of a last response messages to a conversation: 
-  "Please confirm the warranty of the hardware box with the provided serial number."
-  "Please confirm if we can grant a two-week license extension to a customer."
-  "A customer wants to talk with their account manager. Can you please arrange for a manager to reach out to them?"
-  "Please cease the indicated numbers. Kindly let us know once completed."
-  "We are facing a problem described in the ticket XYZ. Can you please look into this?"
-  "Please share who owns this number XYZ"
-  "Please cancel the service for XYZ. Kindly let us know once completed."
+• It contains the last reponse message and may also contain the previous conversation history.
+• It can also contain elements like "/n" or "[image image.png]" which must be ignored.
 
 ### OBJECTIVE:
 • Determine the state of the last response in the SIDE CONVERSATION section. It can can be either of the following:
   1. MEANINGFUL
   2. MEANINGLESS
 
-• Here are some examples of MEANINGFUL last response:
-  The response is a confirmation, approval, or rejection of any kind. Here are a few examples:
-    "Please go ahead with the recommendation."
-    "The license extension is approved."
-    "We cannot approve that"
-    "The is approved"
-    "This is not approved."
-    "Approved" 
-  The response has useful infromation that can allow the support team to continue working on the customer's request. Here are a few examples:
-    "The hardware is under warranty."
-    "There is no account manager for this customer."
-    "We will arrange for someone to call the customer."
-    "Here is the license."
-    "The requested files are attached for you."
-    "The license number is ...."
-    "We will directly cordinate with the customer. Thank you."
-    "The service has been cancelled."
-    "Please inform the customer of the following ..."
-    "Please reach out to the other team."
-    "We cannot asssit with this matter, reach out to the other team"
-    "We will not take any more steps to fix this issue."
-  The response is question or is asking for more information from the support team for the seperate team to reach a decision:
-    "Ask the customer to share evidence"
-    "We need previous invoice copy"
-    "Provide more documentation"
-    "Share license number"
-    "We do not understand this request, reach out to the other team"
-    "Please apply the following steps"
-    "Ask the customer to reach to out us at this email address"
-    "License is ready." 
-    "We need more information from you, provide the following infromation..."
-    "Provide troubleshooting information and access."
+• A last response is deemed MEANINGFUL if it:
+  • Directly confirms, approves, or rejects a request.
+  • Provides any update on the status of an issue or request, even if the update is preliminary or indicates that further action is needed.
+  • Asks for additional information necessary from the support team to move forward or resolve a request.
+  • Here are some examples of MEANINGFUL last response:
+    • The response is a confirmation, approval, or rejection of any kind. Here are a few examples:
+      "Please go ahead with the recommendation."
+      "The license extension is approved."
+      "We cannot approve that"
+      "This is approved"
+      "This is not approved."
+      "Approved" 
+      "not approved"
+      "rejected"
+    • The response has useful infromation that can allow the support team to continue working on the customer's request. Here are a few examples:
+      "The hardware is under warranty."
+      "There is no account manager for this customer."
+      "We will arrange for someone to call the customer."
+      "Here is the license attached"
+      "License is valid"
+      "The requested files are attached for you."
+      "The license number is ...."
+      "We will directly cordinate with the customer. Thank you."
+      "The service has been cancelled."
+      "Please inform the customer of the following ..."
+      "We have redirected your request to another department. Please liaise with them for further updates."
+        This addition is an example where the separate team has transferred the request to another department and provides clear direction for follow-up.
+      "Please reach out to the other team."
+        The above is an example where the seperate team cannot help but has directed to another team.
+      "We cannot asssit with this matter, reach out to the other team"
+        The above is an example where the seperate team cannot help but has directed to another team.
+      "We will not take any more steps to fix this issue."
+        The above is an example where the seperate team confirms that they cannot help.
+    • The response is question or is asking for more information from the support team for the seperate team to reach a decision:
+      "Ask the customer to share evidence"
+      "We need previous invoice copy"
+      "Provide more documentation"
+      "Share license number"
+      "We do not understand this request, reach out to the other team"
+      "Please apply the following steps"
+      "Ask the customer to reach to out us at this email address"
+      "License is ready." 
+      "We need more information from you, provide the following infromation..."
+      "Provide troubleshooting information and access."
 
-• Here are some examples of MEANINGLESS last response:
-  The response does not have any useful information AND we are still waiting to get useful infromation from a seperate team:
-    "Let me get back on this."
-    "Noted."
-    "We are checking."
-    "We will get back to you soon."
-  The response is a question that is probing or discussing with other team members within the seperate team AND contains no useful infromation that could allow the support team to take any action:
-    "Jim, can you look into this?"
-    "Can someone look into this? Sarah?"
-    "Ali, can you check on this and reach out to the customer?"
-    "Sarah, how can we take this forward?"
-  The response is a follow up message or an automated message with no useful infromation:
-    The response is a follow up message, reminding the recepient to respond to an earlier request.
-    The response is an automated message or acknowledgment send by the recepiint's ticketing system or autoresponder.
+• A last response is deemed MEANINGLESS if it:
+  • Provides no new information regarding the request or issue.
+  • Contains only internal communications among the separate team members that do not advance the resolution of the request.
+  • Consists solely of acknowledgement, generic or automated replies that do not address the specifics of the support team's inquiry.
+  • Here are some examples of MEANINGLESS last response:
+    • The response does not have any useful information AND we are still waiting to get useful infromation from a seperate team:
+      "Let me get back on this."
+      "Noted."
+      "We are checking."
+      "We will get back to you soon."
+    • The response is a question that is probing or discussing with other team members within the seperate team AND contains no useful infromation that could allow the support team to take any action:
+      "Jim, can you look into this?"
+      "Can someone look into this? Sarah?"
+      "Ali, can you check on this and reach out to the customer?"
+      "Sarah, how can we take this forward?"
+    • The response is a follow up message or an automated message with no useful infromation:
+      The response is a follow up message, reminding the recepient to respond to an earlier request.
+      The response is an automated message or acknowledgment send by the recepiint's ticketing system or autoresponder.
 
 ### SIDE CONVERSATION
 last_response_text
