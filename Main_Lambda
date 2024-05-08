@@ -12,8 +12,8 @@ import base64
 import gspread
 
 #Authentication
-OPENAI_API_KEY = "" #Trilogy's Key
-ZENDESK_API_KEY = "" #Anton's API Key
+OPENAI_API_KEY = ""
+ZENDESK_API_KEY = ""
 
 #Google Sheet Setup
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
@@ -34,6 +34,7 @@ def lambda_handler(event, context):
     if 'body' in event:
         body = json.loads(event['body'])
         ticket_number = body.get('ticket_number')
+        print('Ticket Number:', ticket_number)
         if ticket_number is None:
             return {
                 'statusCode': 400,
@@ -41,8 +42,8 @@ def lambda_handler(event, context):
             }
     else:
         return {
-            'statusCode': 200,
-            'body': json.dumps('Ticket_number provided in the request body.')
+            'statusCode': 400,
+            'body': json.dumps('No ticket_number provided in the request body.')
         }
 
     #Initialize variables
@@ -62,7 +63,7 @@ def lambda_handler(event, context):
     if response.status_code == 200:
         ticket_data_sc_list = response.json()
     else:
-        print(f"Failed to fetch data: {response.status_code}")
+        print(f"Failed to fetch sc_list data: {response.status_code}")
 
     # Check if open SCs on the ticket are not one
     open_sc_count = sum(sc['state'] == 'open' for sc in ticket_data_sc_list['side_conversations'])
@@ -73,6 +74,7 @@ def lambda_handler(event, context):
         SC_Status = "One open SC was found, so SC automation will work further on the ticket"
         sc_id = ticket_data_sc_list['side_conversations'][0]['id']
         sc_list = json.dumps(ticket_data_sc_list['side_conversations'], indent=4)
+        print(SC_Status)
         print('SC ID:', sc_id)
     
     # Make a GET request to retrieve the ticket SC That's Open
@@ -82,7 +84,7 @@ def lambda_handler(event, context):
     if response.status_code == 200:
         sc_data = response.json()
     else:
-        print(f"Failed to fetch sc data: {response.status_code}")
+        print(f"Failed to fetch open sc events: {response.status_code}")
 
     #Identify the time of the last event in the SC
     last_response_time = sc_data['events'][-1]['created_at']
@@ -120,16 +122,14 @@ def lambda_handler(event, context):
         ticket_gen_data = response.json()
         # Find the brand_id field
         brand_id = ticket_gen_data['ticket'].get('brand_id', None)
-        # Set the value of ticket_brand
-        #ticket_brand = brand_id #Call Stream brand ID 360002486020 #Symphony Call ID is 360001065314
-        #turn brand id from integers to text
+        #print('Brand ID:', brand_id)
         if brand_id == 360002486020:
             ticket_brand = "CallStream"
         if brand_id == 360001065314:
             ticket_brand = "Symphony Commerce"
         else:
             ticket_brand = brand_id
-        
+
         print("Ticket Brand:", ticket_brand)
     else:
         print(f"Failed to fetch sc data: {response.status_code}")
@@ -141,13 +141,15 @@ def lambda_handler(event, context):
     current_time_new = datetime.fromisoformat(current_time_str.replace('Z', '+00:00'))
     last_response_time_new = datetime.fromisoformat(last_response_time_str.replace('Z', '+00:00'))
     time_difference = current_time_new - last_response_time_new
-    hours_elapsed = 0 #round(time_difference.total_seconds() / 3600)
+    hours_elapsed = round(time_difference.total_seconds() / 3600)
     print('Hours elapsed:', hours_elapsed)
 
-    # Hard coded the default hold hours
+    #Hard coded the default hold hours
     default_hold_hours = 72; # This needs to be 72 hours
     
-    # Function to print actions in an internal note
+     #### FUNCTIONS ####
+    
+    #Function to print actions in an internal note
     def print_action_IN(credentials, SC_Status, ticket_number):
         headers = {
             "Content-Type": "application/json",
@@ -168,9 +170,14 @@ def lambda_handler(event, context):
             f"https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}",
             headers=headers,
             data=json.dumps(jsonBody)
-        )    
+        )
+        
+        if response.status_code == 200:
+            print("PUT API for adding IN to the ticket succeeded")
+        else:
+            print(f"PUT API for adding IN to the ticket failed: {response.status_code}")
     
-    # Function to reply in SC
+    #Function to reply in SC
     def reply_in_SC(credentials, recipients, sc_reply, sc_id, ticket_number):
         headers = {
             "Content-Type": "application/json",
@@ -194,8 +201,13 @@ def lambda_handler(event, context):
             headers=headers,
             data=json.dumps(jsonBody)
         )
+        
+        if response.status_code == 200:
+            print("POST API for sending SC succeeded")
+        else:
+            print(f"POST API for sending SC failed: {response.status_code}")
     
-    #Put the Ticket On-Hold
+    #Function to Put the Ticket On-Hold
     def put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number):
         headers = {
             "Content-Type": "application/json",
@@ -208,8 +220,7 @@ def lambda_handler(event, context):
                 "custom_fields": [
                     {"id": "360005123419", "value": str(hold_value)},
                     {"id": "360004438434", "value": str(onhold_reason)}
-                ],
-                #"tags": ["apply_hold_macro"]
+                ]
             }    
         }
 
@@ -219,8 +230,12 @@ def lambda_handler(event, context):
             headers=headers,
             data=json.dumps(jsonBody)
         )
+        if response.status_code == 200:
+            print("PUT API for putting the ticket on-hold succeeded")
+        else:
+            print(f"PUT API for putting the ticket on-hold failed: {response.status_code}")
 
-    #Call GPT
+    #Function to Call GPT
     def call_gpt(filename):
         #clean sc_data
         sc_data_clean = json.dumps(sc_data, indent=4)
@@ -241,7 +256,7 @@ def lambda_handler(event, context):
                     # Remove the break statement
                 #else:
                     #print("No matching 'created_at' found.")
-        
+                    
         last_response_text = find_body_after_last_response_time(data, last_response_time)
         print('Last message in SC:', last_response_text)
 
@@ -251,7 +266,7 @@ def lambda_handler(event, context):
         with open(filepath, 'r') as file:
             prompt = file.read().replace("last_response_text", last_response_text)
             gptresponse = client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4", #"gpt-4-turbo"
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant."},
                     {"role": "user", "content": prompt}  # Assuming you want the entire file content as the user's prompt
@@ -270,26 +285,80 @@ def lambda_handler(event, context):
         row_data = [current_time, ticket_number, ticket_brand, global_gpt_reply, SC_Status]
         worksheet.append_row(row_data)
     
+    #Function to Make the ticket Open
+    def put_ticket_on_open(credentials, ticket_number):
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization" : f"Basic {credentials}"
+        }
+
+        jsonBody = {
+            "ticket": {
+                "status": "open",
+            }    
+        }
+
+        response = requests.request(
+            "PUT",
+            f"https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}",
+            headers=headers,
+            data=json.dumps(jsonBody)
+        )
+        
+        if response.status_code == 200:
+            print("PUT API for openning the ticket succeeded")
+        else:
+            print(f"PUT API for openning the ticket failed: {response.status_code}")
+    
+    #Function to remove esc tag
+    def remove_sc_esc_tag(credentials, ticket_number):
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization" : f"Basic {credentials}"
+        }
+
+        jsonBody = {
+            "ticket": {                     
+                "tags": ["sc_esc"]
+            }    
+        }
+
+        response = requests.request(
+            "DELETE",
+            f"https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}/tags",
+            headers=headers,
+            data=json.dumps(jsonBody)
+        )
+        
+        if response.status_code == 200:
+            print("DELETE API for removing sc_esc tag on the ticket succeeded")
+        else:
+            print(f"DELETE API for removing sc_esc tag on the ticket failed: {response.status_code}")
+    
+    #### LOGIC ####
+    
     # Check if the last Activity in SC is a No response scenario
     if hours_elapsed > 1: # This needs to be "> 1" If the answer is Yes, then its a No response in SC scenario and following actions need to be applied.
         if hours_elapsed < default_hold_hours: # If it has not been 72 hours since the last response, put ticket on Hold for hours_elapsed+12 hours without a reply in SC
             hold_value = default_hold_hours + 12;
             SC_Status = "No response in SC. However, it has been less than 72 hours since last resposne, so putting the ticket on hold for 72+ hours"
             onhold_reason = "SC Automation - No Response in SC in less than 72 hours"
+            
+            #put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number)
 
             print_action_IN(credentials, SC_Status, ticket_number)
-            #put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number)
             write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
 
-        if hours_elapsed > default_hold_hours and brand_id != 360002486020: #If hours_elapsed > 72 and it is not CallStream Support, then put the ticket on hold for hours_elapsed-12 hours without a reply in SC
+        if hours_elapsed > default_hold_hours and brand_id != 360002486020: #If hours_elapsed > 72 and it is not CallStream Support, then put the ticket on hold for hours_elapsed-12 hours with a reply in SC
             hold_value = default_hold_hours - 12;
             SC_Status = "No response in SC. However, it has been MORE than 72 hours since last resposne, so I am sending a Followup in SC and putting the ticket on hold for 72- hours"
             onhold_reason = "SC Automation - No Response in SC in more than 72 hours - Follow up in SC"
             sc_reply = "Dear, Team\n\nWe are waiting to hear from you. Please provide an update on the same.\n\nThank you."
             
             #reply_in_SC(credentials, recipients, sc_reply, sc_id, ticket_number)
-            print_action_IN(credentials, SC_Status, ticket_number)
             #put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number)
+            
+            print_action_IN(credentials, SC_Status, ticket_number)
             write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
 
         #if hours_elapsed > 72 and ticket_brand = "CallStream Support":
@@ -300,28 +369,13 @@ def lambda_handler(event, context):
             print(global_gpt_reply)
                         
             if global_gpt_reply == "NO":
-                SC_Status = "No response in SC. This is callStream and it has been MORE than 72 hours since last response, so I engaged GPT to determine if a follow up is needed. GPT answered, no. So I am closing this ticket."
+                SC_Status = "No response in SC. This is callStream and it has been MORE than 72 hours since last response, so I engaged GPT to determine if a follow up is needed. GPT answered, NO. So I am opening this ticket for an agent to review."
+                
+                #put_ticket_on_open(credentials, ticket_number)
+                #remove_sc_esc_tag(credentials, ticket_number)
+                
                 print_action_IN(credentials, SC_Status, ticket_number)
                 write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
-                #close the ticket
-                # headers = {
-                #     "Content-Type": "application/json",
-                #     "Authorization" : f"Basic {credentials}"
-                # }
-
-                # jsonBody = {
-                #     "ticket": {
-                #         "status": "solved"
-                #     }    
-                # }
-
-                # response = requests.request(
-                #     "PUT",
-                #     f"https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}",
-                #     headers=headers,
-                #     data=json.dumps(jsonBody)
-                # )
-                
 
             if global_gpt_reply == "YES":
                 SC_Status = "No response in SC. This is callStream and it has been MORE than 72 hours since last response, so I engaged GPT to determine if a follow up is needed. GPT answered, yes. So I am following up and putting this ticket on hold for 72- hours."
@@ -330,8 +384,9 @@ def lambda_handler(event, context):
                 sc_reply = "Dear, Team\n\nWe are waiting to hear from you. Please provide an update on the same.\n\nThank you."
 
                 #reply_in_SC(credentials, recipients, sc_reply, sc_id, ticket_number)
-                print_action_IN(credentials, SC_Status, ticket_number)
                 #put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number)
+                
+                print_action_IN(credentials, SC_Status, ticket_number)
                 write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
             
     # Check if the last Message in SC is MEANGINGLESS/MEANINGFULL 
@@ -346,60 +401,16 @@ def lambda_handler(event, context):
             SC_Status = "MEANINGLESS reply in SC. Putting the ticket on hold for 72 hours"
             onhold_reason = "SC Automation - MEANINGLESS reply in SC"
             
-            print_action_IN(credentials, SC_Status, ticket_number)
             #put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number)
+            
+            print_action_IN(credentials, SC_Status, ticket_number)
             write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
 
         if "MEANINGFUL" in global_gpt_reply:
             SC_Status = "MEANINGFUL reply in SC. Leaving the ticket open and removing the sc_esc tag"
-                        
-            def put_ticket_on_open(credentials, ticket_number):
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization" : f"Basic {credentials}"
-                }
-
-                jsonBody = {
-                    "ticket": {
-                        "status": "open",
-                        #"tags": ["apply_hold_macro"]
-                    }    
-                }
-
-                response = requests.request(
-                    "PUT",
-                    f"https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}",
-                    headers=headers,
-                    data=json.dumps(jsonBody)
-                )
                 
             #put_ticket_on_open(credentials, ticket_number)
-            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
-
-            def remove_sc_esc_tag(credentials, ticket_number):
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization" : f"Basic {credentials}"
-                }
-
-                jsonBody = {
-                    "ticket": {                     
-                        "tags": ["sc_esc"]
-                    }    
-                }
-
-                response = requests.request(
-                    "DELETE",
-                    f"https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}/tags",
-                    headers=headers,
-                    data=json.dumps(jsonBody)
-                )
-
             #remove_sc_esc_tag(credentials, ticket_number)
+            
             print_action_IN(credentials, SC_Status, ticket_number)
             write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
-
-#JSON Payload to configure in Zendesk with the webhook
-# {
-#   "body": "{\"ticket_number\": \"4318902\"}"
-# }
