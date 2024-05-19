@@ -13,8 +13,8 @@ import base64
 import gspread
 
 #Authentication
-OPENAI_API_KEY = ""
-ZENDESK_API_KEY = ""
+OPENAI_API_KEY = 
+ZENDESK_API_KEY = 
 
 #Google Sheet Setup
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
@@ -88,10 +88,14 @@ def lambda_handler(event, context):
         print(f"Failed to fetch open sc events: {response.status_code}")
 
     # Filtering out all outbound email events So we are only looking at inbound emails in SC
+    filtered_sc_data_outbound = {"events": [event for event in sc_data["events"] if "outboundEmail" in event["message"]["external_ids"]]}
     filtered_sc_data = {"events": [event for event in sc_data["events"] if "inboundEmail" in event["message"]["external_ids"]]}
 
     # Identify the time of the last event in the SC
-    last_response_time = filtered_sc_data["events"][-1]['created_at']
+    if not filtered_sc_data or not filtered_sc_data["events"]:
+        last_response_time = filtered_sc_data_outbound["events"][-1]['created_at']
+    else:
+        last_response_time = filtered_sc_data["events"][-1]['created_at']
     print('Last response time:', last_response_time)
 
     # Initialize an empty list to hold the recipient email addresses
@@ -432,6 +436,52 @@ def lambda_handler(event, context):
         else:
             print(f"PUT API for adding tempo_unsuspend tag on the ticket failed: {response.status_code}")
     
+    #Function to add atlas-ticket-sc-dont-wakeup tag
+    def add_atlas_ticket_sc_dont_wakeup_tag(credentials, ticket_number):
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization" : f"Basic {credentials}"
+        }
+
+        jsonBody = {                   
+            "tags": ["atlas-ticket-sc-dont-wakeup"]   
+        }
+
+        response = requests.request(
+            "PUT",
+            f"https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}/tags",
+            headers=headers,
+            data=json.dumps(jsonBody)
+        )
+        
+        if response.status_code == 200:
+            print("PUT API for adding atlas-ticket-sc-dont-wakeup tag on the ticket succeeded")
+        else:
+            print(f"PUT API for adding atlas-ticket-sc-dont-wakeup tag on the ticket failed: {response.status_code}")
+
+    #Function to remove atlas-ticket-sc-dont-wakeup tag
+    def remove_atlas_ticket_sc_dont_wakeup_tag(credentials, ticket_number):
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization" : f"Basic {credentials}"
+        }
+
+        jsonBody = {                   
+            "tags": ["atlas-ticket-sc-dont-wakeup"]   
+        }
+
+        response = requests.request(
+            "DELETE",
+            f"https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}/tags",
+            headers=headers,
+            data=json.dumps(jsonBody)
+        )
+        
+        if response.status_code == 200:
+            print("PUT API for removing atlas-ticket-sc-dont-wakeup tag on the ticket succeeded")
+        else:
+            print(f"PUT API for removing atlas-ticket-sc-dont-wakeup tag on the ticket failed: {response.status_code}")
+    
     #### LOGIC ####
     
     # Check if the last Activity in SC is a No response scenario
@@ -479,10 +529,13 @@ def lambda_handler(event, context):
                     onhold_reason = f"SC Automation - No Response in SC in {default_hold_hours} hours - Follow up in SC"
                     sc_reply = f"Dear Team,\n\nWe are eagerly awaiting your response. Please provide an update at your earliest convenience.\n\nThank you."
                     
+                    add_atlas_ticket_sc_dont_wakeup_tag(credentials, ticket_number)
+                    reply_in_SC(credentials, recipients, sc_reply, sc_id, ticket_number)
+                    remove_atlas_ticket_sc_dont_wakeup_tag(credentials, ticket_number)
+                    
                     print_action_IN(credentials, SC_Status, ticket_number)
                     write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
                     
-                    reply_in_SC(credentials, recipients, sc_reply, sc_id, ticket_number)
                     put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number)
 
             #Timer Opened the ticket and ticket_brand = "CallStream Support":
@@ -518,10 +571,13 @@ def lambda_handler(event, context):
                         onhold_reason = f"SC Automation - No Response in SC in {default_hold_hours} hours - CallStream Support"
                         sc_reply = f"Dear Team,\n\nWe are eagerly awaiting your response. Please provide an update at your earliest convenience.\n\nThank you."
                         
+                        add_atlas_ticket_sc_dont_wakeup_tag(credentials, ticket_number)
+                        reply_in_SC(credentials, recipients, sc_reply, sc_id, ticket_number)
+                        remove_atlas_ticket_sc_dont_wakeup_tag(credentials, ticket_number)
+                    
                         print_action_IN(credentials, SC_Status, ticket_number)
                         write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
                         
-                        reply_in_SC(credentials, recipients, sc_reply, sc_id, ticket_number)
                         put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number)
             
     # Check if the last Message in SC is MEANGINGLESS/MEANINGFULL 
