@@ -11,6 +11,7 @@ import datetime
 from datetime import datetime, timezone
 import base64
 import gspread
+import json
 
 #Authentication
 OPENAI_API_KEY = 
@@ -136,7 +137,6 @@ def lambda_handler(event, context):
                 )
                 gpt_reply = gptresponse.choices[0].message.content
                 return gpt_reply
-                #print("GPT Verdict:", gpt_reply)
         
         #Function to add atlas-ticket-sc-dont-wakeup tag
         def add_atlas_ticket_sc_dont_wakeup_tag(credentials, ticket_number):
@@ -185,13 +185,13 @@ def lambda_handler(event, context):
                 print(f"PUT API for removing atlas-ticket-sc-dont-wakeup tag on the ticket failed: {response.status_code}")
         
         #Function to write to GSHEET
-        def write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply):
+        def write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status):
             gc = gspread.authorize(gscredentials)
             sh = gc.open_by_key('1fyju79jKHCDI7C2YAv-QbrqUnZ0g1sNccLuvao0o_AQ')
             worksheet = sh.worksheet('Sheet1')
-            row_data = [current_time, ticket_number, ticket_brand, global_gpt_reply, SC_Status]
+            row_data = [current_time, ticket_number, ticket_brand, global_gpt_reply, SC_Status, ticket_status]
             worksheet.append_row(row_data)
-        
+
         #Function to Make the ticket Open
         def put_ticket_on_open(credentials, ticket_number,SC_Status):
             headers = {
@@ -221,6 +221,17 @@ def lambda_handler(event, context):
                 print(f"Response content: {update_response.content}")
                 
         #### INITIALIZATION ####
+        
+        #Initialize variables
+        global_gpt_reply = "No GPT call made"
+        last_ticket = None
+        last_run_seconds_elapsed = 1000
+        
+        #Determine Current Time
+        current_time = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z' # Get the current time in UTC
+        current_time_str = ''.join(current_time) # Convert the current time to a string
+        current_time_new = datetime.fromisoformat(current_time_str.strip('Z')).replace(microsecond=0)
+        print('Current Time:', current_time_new)
                 
         # Parse the incoming JSON payload
         if 'body' in event:
@@ -237,9 +248,6 @@ def lambda_handler(event, context):
                 'statusCode': 400,
                 'body': json.dumps('No ticket_number provided in the request body.')
             }
-
-        #Initialize variables
-        global_gpt_reply = "No GPT call made"
 
         # Create a session and authenticate with basic auth
         session = requests.Session()
@@ -259,7 +267,6 @@ def lambda_handler(event, context):
         # Find the brand_id field
         brand_id = ticket_gen_data['ticket'].get('brand_id', None)
         
-        #print('Brand ID:', brand_id)
         if brand_id == 360002486020:
             ticket_brand = "CallStream"
         elif brand_id == 360001065314:
@@ -271,16 +278,11 @@ def lambda_handler(event, context):
         else:
             ticket_brand = brand_id
 
-        print("Ticket Brand:", ticket_brand)
-
         ticket_priority = ticket_gen_data['ticket'].get('priority', None)
-        print("Ticket Priority:", ticket_priority)
-
-        #Determine Current Time
-        current_time = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z' # Get the current time in UTC
-        current_time_str = ''.join(current_time) # Convert the current time to a string
-        current_time_new = datetime.fromisoformat(current_time_str.strip('Z')).replace(microsecond=0)
-        print('Current Time:', current_time_new)
+        
+        #print("Ticket Brand:", ticket_brand)
+        #print("Ticket Priority:", ticket_priority)
+        
         # Make a GET request to retrieve the ticket SC details
         response = session.get(f'https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}/side_conversations')
         
@@ -295,8 +297,8 @@ def lambda_handler(event, context):
         if open_sc_count != 1:
             SC_Status = "I'm not taking any action on the ticket because it has more than one open SC. If we're not waiting on an SC, please mark it as 'done' so that I can handle it! Also, I'll leave the ticket open, remove the sc_esc tag, and add the tempo_unsuspend tag for an agent to manually review."
             global_gpt_reply = "No GPT call made. More than one open SC found."
-            
-            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
+            ticket_status = "open"
+            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
             put_ticket_on_open(credentials, ticket_number,SC_Status)
             return
         else:
@@ -338,12 +340,12 @@ def lambda_handler(event, context):
 
         if SC_automation_reply_events:  # Check if the list is not empty
             last_outbound_response_time_SC_Automan = SC_automation_reply_events[-1]
-            print('Last Outbound Response Time by SC Automan:', last_outbound_response_time_SC_Automan)
+            #print('Last Outbound Response Time by SC Automan:', last_outbound_response_time_SC_Automan)
             last_outbound_response_time_SC_Automan_new = datetime.fromisoformat(last_outbound_response_time_SC_Automan.strip('Z'))
             seconds_elapsed_last_outbound_response_SC_Automan = round((current_time_new - last_outbound_response_time_SC_Automan_new).total_seconds())
         else:
             last_outbound_response_time_SC_Automan = None
-            seconds_elapsed_last_outbound_response_SC_Automan = None
+            seconds_elapsed_last_outbound_response_SC_Automan = 1000
             print('No previous replies by SC Automan found in the entire open SC.')
                 
         #Determine Seconds Since Last Outbound Response by AC Automation
@@ -354,7 +356,7 @@ def lambda_handler(event, context):
             last_response_time = filtered_sc_data_outbound["events"][0]['created_at']
         else:
             last_response_time = filtered_sc_data["events"][-1]['created_at']
-        print('Last response time:', last_response_time)
+        print('Last SC response time:', last_response_time)
 
         # Initialize an empty list to hold the recipient email addresses
         recipients = []
@@ -385,8 +387,8 @@ def lambda_handler(event, context):
         last_response_time_str = ''.join(last_response_time)
         last_response_time_new = datetime.fromisoformat(last_response_time_str.strip('Z'))
         time_difference = current_time_new - last_response_time_new
-        hours_elapsed = round(time_difference.total_seconds() / 3600, 2)
-        print('Hours elapsed:', hours_elapsed)
+        hours_elapsed = round(time_difference.total_seconds() / 3600, 2) + 0.2 #Adding 12 minutes to make up for added zendesk hold times for release from hold to open tickets example 4347944 
+        print('Hours elapsed Since No Response in SC:', hours_elapsed)
         
         #Make a Get Request to get the ticket comments
         headers = {
@@ -426,13 +428,53 @@ def lambda_handler(event, context):
 
         print("Default Hours Value", default_hold_hours)
         
-        #In comments_data find "Created_at" value of first comment going from top to bottom added by Author ID 14181031764242 with Text "I see that the last response in the SC, less than 3 minutes ago, was from me (SC Automan)"
+        #Check if the last run was for the same ticket
+        gc = gspread.authorize(gscredentials)
+        sh = gc.open_by_key('1fyju79jKHCDI7C2YAv-QbrqUnZ0g1sNccLuvao0o_AQ')
+        worksheet = sh.worksheet('Sheet1')
+        def get_last_filled_row(worksheet):
+            str_list = list(filter(None, worksheet.col_values(1)))  # Assuming column A (1) is used to determine last row
+            return len(str_list)
+        last_row = get_last_filled_row(worksheet)
+        
+        # Fetch the last cell values
+        last_ticket = worksheet.cell(last_row, 2).value
+        last_run = worksheet.cell(last_row, 1).value
+        last_status = worksheet.cell(last_row, 6).value
+
+        # Convert the current time to a string
+        last_run_new = datetime.fromisoformat(last_run.strip('Z')).replace(microsecond=0)
+        last_run_seconds_elapsed = round((current_time_new - last_run_new).total_seconds())
+        print ('last_run_seconds_elapsed:', last_run_seconds_elapsed)   
+        
+        # Fetch the second last cell values
+        second_last_ticket = worksheet.cell(last_row-1, 2).value
+        second_last_run = worksheet.cell(last_row-1, 1).value
+        second_last_status = worksheet.cell(last_row-1, 6).value
+
+        # Convert the current time to a string
+        second_last_run_new = datetime.fromisoformat(second_last_run.strip('Z')).replace(microsecond=0)
+        second_last_run_seconds_elapsed = round((current_time_new - second_last_run_new).total_seconds())
+        print ('second_last_run_seconds_elapsed:', second_last_run_seconds_elapsed)   
+        
+        if last_ticket == ticket_number and last_run_seconds_elapsed <= 60 and second_last_run_seconds_elapsed <= 60:
+            raise Exception("multi-run-loop")
+        
+        elif last_ticket == ticket_number and last_run_seconds_elapsed <= 60 and last_status == "open":
+            raise Exception("multi-run-open")
+        
+        elif last_ticket == ticket_number and last_run_seconds_elapsed <= 60 and last_status == "hold":
+            raise Exception("multi-run-hold")
+        
+        #In comments_data find "Created_at" value of first comment going from top to bottom added by Author ID 14181031764242 with 3 min Text 
         for comment in comments_data['comments']:
-            if comment['author_id'] == 14181031764242 and "I see that the last response in the SC, less than 3 minutes ago, was from me (SC Automan)" in comment['body']:
+            if comment['author_id'] == 14181031764242 and "I noticed that the most recent response in the SC was mine, less than 3 minutes ago." in comment['body']:
                 last_sc_automan_3min_in_time = comment['created_at']
-                break
-        last_sc_automan_3min_in_time_new = datetime.fromisoformat(last_sc_automan_3min_in_time.strip('Z'))
-        seconds_elapsed_last_sc_automan_3min_in = round((current_time_new - last_sc_automan_3min_in_time_new).total_seconds())
+                last_sc_automan_3min_in_time_new = datetime.fromisoformat(last_sc_automan_3min_in_time.strip('Z'))
+                seconds_elapsed_last_sc_automan_3min_in = round((current_time_new - last_sc_automan_3min_in_time_new).total_seconds())
+            else:
+                last_sc_automan_3min_in_time = None
+                seconds_elapsed_last_sc_automan_3min_in = 1000
         
         ##Identify the time of the last meaningful comment in the ticket
         
@@ -448,10 +490,10 @@ def lambda_handler(event, context):
         #Determine hours elapsed since the last comment
         last_comment_time_str = ''.join(last_comment_time)
         last_comment_time_new = datetime.fromisoformat(last_comment_time_str.strip('Z'))
-        print('Last comment time_new:', last_comment_time_new)
+        #print('Last comment time_new:', last_comment_time_new)
         time_difference_comment = current_time_new - last_comment_time_new
-        print('current_time_new:', current_time_new)
-        print('Time difference:', time_difference_comment)
+        #print('current_time_new:', current_time_new)
+        #print('Time difference:', time_difference_comment)
         hours_elapsed_lastcomment = round(time_difference_comment.total_seconds() / 3600, 2)
         print('Hours elapsed since last comment:', hours_elapsed_lastcomment)
         
@@ -459,7 +501,7 @@ def lambda_handler(event, context):
         last_response_text_unclipped = find_body_after_last_response_time(last_response_time)
         #Enable this Line with a long SC reply to test Lamda exceptions by recreating exceeding token limit #last_response_text = last_response_text_unclipped
         last_response_text = last_response_text_unclipped[:1000] # Clip the text to 1000 characters to avoid GPT token limit
-        print('Last message in SC:', last_response_text)
+        #print('Last message in SC:', last_response_text)
             
         #### LOGIC ####
 
@@ -467,28 +509,28 @@ def lambda_handler(event, context):
         if hours_elapsed <= 1 and last_response_text != "No inbound message in SC. The last response time is for the first outbound reply.":
             filename = "GPT_Prompt_05.txt"
             global_gpt_reply = call_gpt(filename)
-            print(global_gpt_reply)
+            print('GPT:', global_gpt_reply)
 
             if "MEANINGLESS" in global_gpt_reply:
                 hold_value = default_hold_hours
                 SC_Status = f"There is a meaningless reply in SC. I see that this ticket has {ticket_priority} priority. Given the previous history, I am putting the ticket on hold for {default_hold_hours} hours."
                 onhold_reason = f"SC Automation - Meaningless Response in SC, putting back on for {default_hold_hours} hours"
-                
-                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
+                ticket_status = "hold"
+                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
                 put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number, SC_Status)
 
             if "MEANINGFUL" in global_gpt_reply:
                 SC_Status = "There is a meaningful reply in SC. I am leaving the ticket open, removing the sc_esc tag and adding the tempo_unsuspend tag for a manual review by an agent."
-                
-                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
+                ticket_status = "open"
+                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
                 put_ticket_on_open(credentials, ticket_number, SC_Status)
         
         elif hours_elapsed <= 1 and last_response_text == "No inbound message in SC. The last response time is for the first outbound reply.":
             hold_value = default_hold_hours
             SC_Status = "There is no response in SC and it looks like we never received any response to date. Given that the last response sent by us was less than hour ago, I am putting the ticket on hold for {default_hold_hours} hours."
             onhold_reason = f"SC Automation - No Response in SC to date, putting back on for {default_hold_hours} hours"
-            
-            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
+            ticket_status = "hold"
+            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
             put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number, SC_Status)
         
         # Check if the last Activity in SC is a No response scenario
@@ -498,8 +540,8 @@ def lambda_handler(event, context):
             if hours_elapsed_lastcomment < 1:
                 SC_Status = "There is no response in SC. However, a potentially meaningful public/private comment was added in the last hour. I am leaving the ticket open, removing the sc_esc tag and adding the tempo_unsuspend tag for a manual review by an agent."
                 global_gpt_reply = "No GPT call made"
-                        
-                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
+                ticket_status = "open"        
+                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
                 put_ticket_on_open(credentials, ticket_number, SC_Status)
                 
             # If no public/private comment added in the last hour. This means timer or something else opened the ticket.
@@ -507,76 +549,80 @@ def lambda_handler(event, context):
                 # Something other than the timer opened the ticket like a SC reply from Support
                 if hours_elapsed < default_hold_hours: 
                     hold_value = default_hold_hours
-                    SC_Status = f"There is no response in SC. However, it has been less than {default_hold_hours} hours as previously put on hold. I also noticed that this ticket has {ticket_priority} priority. I am deciding to put the ticket on hold for another {default_hold_hours} hours."
+                    SC_Status = f"There is no response in SC and I do not see any valuable public or private comments added in the last hour. Moreover, it has also been less than {default_hold_hours} hours as previously put on hold. So, I am deciding to put the ticket on hold for another {default_hold_hours} hours."
                     onhold_reason = f"SC Automation - No Response in SC but it has been less than {default_hold_hours} hours"
-
-                    write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
+                    ticket_status = "hold"
+                    write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
                     put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number, SC_Status)
                 
                 # Timer Opened the ticket
                 elif hours_elapsed >= default_hold_hours and brand_id != 360002486020:
                     if hours_elapsed > 240:
                         SC_Status = "It has been 10 days since we received a reply in SC. So, I am leaving the ticket open, removing the sc_esc tag and adding the tempo_unsuspend tag for a manual review by an agent to see if it should be closed."
-                                        
-                        write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
+                        ticket_status = "open"               
+                        write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
                         put_ticket_on_open(credentials, ticket_number, SC_Status)
                     else:
                         if filtered_sc_data_outbound["events"][-1]['message']['from']['email'] == 'ai-zd-integration@trilogy.com' and seconds_elapsed_last_outbound_response_SC_Automan <= 180 and seconds_elapsed_last_sc_automan_3min_in <= 180:
                             SC_Status = "It seems like I'm being called in a loop! So I am leaving the ticket open, removing the sc_esc tag and adding the tempo_unsuspend tag for a manual review by an agent."
-                            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
+                            ticket_status = "open"
+                            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
                             put_ticket_on_open(credentials, ticket_number, SC_Status)
                             
                         elif filtered_sc_data_outbound["events"][-1]['message']['from']['email'] == 'ai-zd-integration@trilogy.com' and seconds_elapsed_last_outbound_response_SC_Automan <= 180:
-                            SC_Status = "I see that the last response in the SC, less than 3 minutes ago, was from me (SC Automan). So I am refraining from sending any more response in SC and putting the ticket on-hold without a reply."
-                            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
+                            SC_Status = "I noticed that the most recent response in the SC was mine, less than 3 minutes ago. This was likely a Lambda double-run that can be ignored. So I am refraining from sending any more response in SC and putting the ticket on-hold without a reply. Cheers!"
+                            ticket_status = "hold"
                             onhold_reason = f"SC Automation - No Response in SC, putting back on for {default_hold_hours} hours"
                             hold_value = default_hold_hours
+                            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
                             put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number, SC_Status)
                             
                         else:
                             hold_value = default_hold_hours
-                            SC_Status = f"There has been no response in SC since the last hold of {default_hold_hours} hours. I also noticed that this ticket has {ticket_priority} priority. Therefore, I am sending a follow-up in SC and putting the ticket on hold for another {default_hold_hours} hours."
+                            SC_Status = f"There has been no response in SC since the last hold of {default_hold_hours} hours. Therefore, I am sending a follow-up in SC and putting the ticket on hold for another {default_hold_hours} hours."
                             onhold_reason = f"SC Automation - No Response in SC in {default_hold_hours} hours - Follow up in SC"
                             sc_reply = f"Dear Team,\n\nWe are eagerly awaiting your response. Please provide an update at your earliest convenience.\n\nThank you."
                             
                             add_atlas_ticket_sc_dont_wakeup_tag(credentials, ticket_number)
                             reply_in_SC(credentials, recipients, sc_reply, sc_id, ticket_number)
                             remove_atlas_ticket_sc_dont_wakeup_tag(credentials, ticket_number)
-                            
-                            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
+                            ticket_status = "hold"
+                            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
                             put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number, SC_Status)
 
                 # Timer Opened the ticket and ticket_brand = "CallStream Support"
                 if hours_elapsed >= default_hold_hours and brand_id == 360002486020:
                     filename = "GPT_Call_Stream_No_Response.txt"
                     global_gpt_reply = call_gpt(filename)
-                    print(global_gpt_reply)
+                    print('GPT:', global_gpt_reply)
                                 
                     if global_gpt_reply == "NO":
                         SC_Status = f"There has been no response in SC. This is CallStream and it has been {default_hold_hours} hours since the last hold. I also noticed that this ticket has {ticket_priority} priority. So, I engaged GPT to determine if a follow-up is needed but GPT answered, no. Therefore, I am leaving the ticket open, removing the sc_esc tag and adding the tempo_unsuspend tag for a manual review by an agent."
-                        
-                        write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
+                        ticket_status = "open"
+                        write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
                         put_ticket_on_open(credentials, ticket_number, SC_Status)
 
                     elif global_gpt_reply == "YES":
-                        if hours_elapsed > 336:
-                            SC_Status = "It has been two weeks since a reply in SC. I am leaving the ticket open, removing the sc_esc tag and adding the tempo_unsuspend tag for a manual review by an agent to see if the ticket should be closed"
-                                        
-                            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
+                        if hours_elapsed > 240:
+                            SC_Status = "It has been 10 days since we received a reply in SC. So, I am leaving the ticket open, removing the sc_esc tag and adding the tempo_unsuspend tag for a manual review by an agent to see if it should be closed."
+                            ticket_status = "open"            
+                            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
                             put_ticket_on_open(credentials, ticket_number, SC_Status)
                         else:
                             if filtered_sc_data_outbound["events"][-1]['message']['from']['email'] == 'ai-zd-integration@trilogy.com' and seconds_elapsed_last_outbound_response_SC_Automan <= 180 and seconds_elapsed_last_sc_automan_3min_in <= 180:
                                 SC_Status = "It seems like I'm being called in a loop! So I am leaving the ticket open, removing the sc_esc tag and adding the tempo_unsuspend tag for a manual review by an agent."
-                                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
+                                ticket_status = "open"
+                                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
                                 put_ticket_on_open(credentials, ticket_number, SC_Status)
                                 
                             elif filtered_sc_data_outbound["events"][-1]['message']['from']['email'] == 'ai-zd-integration@trilogy.com' and seconds_elapsed_last_outbound_response_SC_Automan <= 180:
-                                SC_Status = "I see that the last response in the SC, less than 30 seconds ago, was from me (SC Automan). So I am refraining from sending any more response in SC and putting the ticket on-hold without a reply."
-                                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
-                                put_ticket_on_open(credentials, ticket_number, SC_Status)
+                                SC_Status = "I noticed that the most recent response in the SC was mine, less than 3 minutes ago. This was likely a Lambda double-run that can be ignored. So I am refraining from sending any more response in SC and putting the ticket on-hold without a reply. Cheers!"
+                                ticket_status = "hold"
+                                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
+                                put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number, SC_Status)
                                 
                             else:
-                                SC_Status = f"There is no response in SC. This is CallStream and it has been {default_hold_hours} hours since last hold. I also noticed that this ticket has {ticket_priority} priority. So I engaged GPT to determine if a follow up is needed. GPT answered, yes. Therefore, I am following up in SC and putting this ticket on hold for another {default_hold_hours} hours."
+                                SC_Status = f"There is no response in SC. This is CallStream and it has been {default_hold_hours} hours since last hold. So I engaged GPT to determine if a follow up is needed. GPT answered, yes. Therefore, I am following up in SC and putting this ticket on hold for another {default_hold_hours} hours."
                                 hold_value = default_hold_hours
                                 onhold_reason = f"SC Automation - No Response in SC in {default_hold_hours} hours - CallStream Support"
                                 sc_reply = f"Dear Team,\n\nWe are eagerly awaiting your response. Please provide an update at your earliest convenience.\n\nThank you."
@@ -584,12 +630,44 @@ def lambda_handler(event, context):
                                 add_atlas_ticket_sc_dont_wakeup_tag(credentials, ticket_number)
                                 reply_in_SC(credentials, recipients, sc_reply, sc_id, ticket_number)
                                 remove_atlas_ticket_sc_dont_wakeup_tag(credentials, ticket_number)
-                        
-                                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
+                                ticket_status = "hold"
+                                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
                                 put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number, SC_Status)
-            
+    
     except Exception as e:
-        print(f"Lamda exception occurred: {str(e)}")
-        SC_Status = "I encountered a bit of a snag! So, I am leaving the ticket open, removing the sc_esc tag and adding the tempo_unsuspend tag for a manual review by an agent."
-        write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply)
-        put_ticket_on_open(credentials, ticket_number,SC_Status)
+        if "multi-run-open" in str(e):
+            print(f"Multi-run on open ticket {ticket_number} stopped: {str(e)}")
+            # SC_Status = "I was called again in less than 60 seconds for the same ticket. This sometimes happens due to a double-run on the AWS and can be ignored. Once again, I am putting the ticket on open, removing the sc_esc tag and adding the tempo_unsuspend tag."
+            # ticket_status = "open"
+            # write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
+            # put_ticket_on_open(credentials, ticket_number,SC_Status)
+            
+        elif "multi-run-hold" in str(e):
+            print(f"Multi-run on on-hold ticket {ticket_number} stopped: {str(e)}")
+            # SC_Status = "I was called again in less than 60 seconds for the same ticket. This sometimes happens due to a double-run on the AWS and can be ignored. I am putting the ticket on hold, again. Cheers!"
+            # hold_value = default_hold_hours
+            # onhold_reason = f"SC Automation - Putting back on for {default_hold_hours} hours"
+            # ticket_status = "hold"
+            # write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
+            # put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number, SC_Status)
+            
+        elif "multi-run-loop" in str(e):
+            print(f"Multi-run-loop on a the ticket {ticket_number} stopped: {str(e)}")
+            SC_Status = "I am being called in a loop. So, I am leaving the ticket open, removing the sc_esc tag and adding the tempo_unsuspend tag for a manual review by an agent."
+            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
+            put_ticket_on_open(credentials, ticket_number,SC_Status)
+            
+        else: 
+            print(f"Lamda exception occurred on the ticket {ticket_number}: {str(e)}")
+            SC_Status = "I encountered a bit of a snag! So, I am leaving the ticket open, removing the sc_esc tag and adding the tempo_unsuspend tag for a manual review by an agent."
+            ticket_status = "open"
+            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status)
+            put_ticket_on_open(credentials, ticket_number,SC_Status)
+
+# Assuming this is for demonstration purposes outside AWS Lambda
+if __name__ == "__main__":
+    event = {
+        "body": json.dumps({"ticket_number": "4342652"}) # Test ticket number is 4342051/4318902/4333812, callstream 4332550"
+    }
+    context = {}
+    lambda_handler(event, context)
