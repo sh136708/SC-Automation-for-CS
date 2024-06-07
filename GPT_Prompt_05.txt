@@ -3,7 +3,13 @@
 • Side conversations are usually started to ask for infromation, confirmation or approval, etc from a seperate team. 
 • In this case, the support team is waiting to hear back from a seperate team before it can start working on the customer's request.
 • The SIDE CONVERSATION section has the text found in the body of the last response email received from the seperate team. 
-• It contains the last reponse message and may also contain the previous conversation history.
+• It contains the last reponse message and may also contain the previous conversation history. Please IGNORE any prior replies in the text and only focus on the last message received.
+  • You may see older replies within the text beginning with text similar to the following which you MUST ignore:
+    --------------- Original Message ---------------
+    From: Invosys CSC Provisioning [orderdesk@invosys.com]
+    Sent: 06/06/2024, 16:24
+    To: support@citynumbers.co.uk
+    Subject: Re
 • It can also contain elements like "/n" or "[image image.png]" which must be ignored.
 
 ### OBJECTIVE:
@@ -68,6 +74,7 @@
     • The response does not have any useful information AND we are still waiting to get useful infromation from a seperate team:
       "Let me get back on this."
       "Noted."
+      "we will update you"
       "We are checking."
       "We will get back to you soon."
       "I can approve, yet I'm not the person to approve. Adding Sam, so she can approve"
