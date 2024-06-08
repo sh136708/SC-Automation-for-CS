@@ -4,6 +4,9 @@
 
 This script is designed to automate responses in Zendesk side conversations (SC) based on the content of the last message. It leverages OpenAI's GPT-4 to classify the last message as either meaningful or meaningless and handles the ticket accordingly. The script also updates the ticket status, logs actions in Google Sheets, and ensures the workflow is smooth and efficient.
 
+## Release Notes
+https://docs.google.com/document/d/1aeLwDzNmNlss9JXilrIAT-fx983lzvGIK6KhvxCkhlE/edit?usp=sharing
+
 ## Requirements
 
 - Python 3.6 or higher
