@@ -9,6 +9,7 @@ import datetime
 from datetime import datetime, timezone
 import base64
 import gspread
+from gspread.exceptions import APIError
 import json
 import time
 
@@ -31,8 +32,7 @@ openai.api_key = OPENAI_API_KEY
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 def lambda_handler(event, context):
-    try:
-        ############################################################################################################
+    try:    
         #### DOUBLE RUN CHECK ####
         
         #Initialize variables
@@ -41,9 +41,9 @@ def lambda_handler(event, context):
         SC_Status = "Checking for Lamda multi-runs..."
         ticket_brand = "Not processed yet"
         ticket_status = "Not processed yet"
-        last_ticket = None
-        second_last_ticket = None
-        third_last_ticket = None
+        last_ticket = 100
+        second_last_ticket = 100
+        third_last_ticket = 100
         last_run_seconds_elapsed = 1000
         second_last_run_seconds_elapsed = 1000
         third_last_run_seconds_elapsed = 1000
@@ -54,11 +54,22 @@ def lambda_handler(event, context):
             str_list = list(filter(None, worksheet.col_values(1)))  # Assuming column A (1) is used to determine last row
             return len(str_list)
         
+        #Function to get the worksheet
+        def get_worksheet(gscredentials):
+            try:
+                gc = gspread.authorize(gscredentials)
+                sh = gc.open_by_key('1fyju79jKHCDI7C2YAv-QbrqUnZ0g1sNccLuvao0o_AQ')
+                worksheet = sh.worksheet('Sheet1')
+                return worksheet
+            except APIError as e:
+                if '429' in str(e):
+                    print("Quota exceeded, ignoring this error and moving on...")
+                else:
+                    raise  # Re-raise the exception if it's not a quota exceeded error
+        
         #Function to write to GSHEET without deleting the second last row
         def write_to_gsheet_no_del(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, SC_Status_0):
-            gc = gspread.authorize(gscredentials)
-            sh = gc.open_by_key('1fyju79jKHCDI7C2YAv-QbrqUnZ0g1sNccLuvao0o_AQ')
-            worksheet = sh.worksheet('Sheet1')
+            worksheet = get_worksheet(gscredentials)
             row_data = [current_time, ticket_number, ticket_brand, global_gpt_reply, SC_Status, ticket_status, SC_Status_0]
             worksheet.append_row(row_data)
         
@@ -73,30 +84,36 @@ def lambda_handler(event, context):
             # Initialize list to store rows to delete
             rows_to_delete = []
 
-            # Loop through the last 5 rows (or less if total rows < 5)
-            for i in range(1, check_range + 1):
-                row_index = total_rows - i
-                ticket = worksheet.cell(row_index, 2).value
-                SC_Status = worksheet.cell(row_index, 5).value
+            try:
+                # Loop through the last 5 rows (or less if total rows < 5)
+                for i in range(1, check_range + 1):
+                    row_index = total_rows - i
+                    ticket = worksheet.cell(row_index, 2).value
+                    SC_Status = worksheet.cell(row_index, 5).value
 
-                # Check if the row matches the ticket number and the SC_Status
-                if ticket == ticket_number and SC_Status == "Checking for Lamda multi-runs...":
-                    rows_to_delete.append(row_index)
+                    # Check if the row matches the ticket number and the SC_Status
+                    if ticket == ticket_number and SC_Status == "Checking for Lamda multi-runs...":
+                        rows_to_delete.append(row_index)
 
-            # Delete the rows marked for deletion
-            for row_index in sorted(rows_to_delete, reverse=True):
-                worksheet.delete_rows(row_index)
+                # Delete the rows marked for deletion
+                for row_index in sorted(rows_to_delete, reverse=True):
+                    worksheet.delete_rows(row_index)
 
-            if not rows_to_delete:
-                print("No matching rows found to delete.")
-            else:
-                print(f"Deleted rows: {', '.join(map(str, rows_to_delete))}")
+                if not rows_to_delete:
+                    print("No matching rows found to delete.")
+                else:
+                    print(f"Deleted rows: {', '.join(map(str, rows_to_delete))}")
+            except APIError as e:
+                if '429' in str(e):
+                    print("Quota exceeded, ignoring this error and moving on...")
+                else:
+                    raise  # Re-raise the exception if it's not a quota exceeded error
                 
         #Function to write to GSHEET and delete the last row
         def write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, SC_Status_0):
             gc = gspread.authorize(gscredentials)
             sh = gc.open_by_key('1fyju79jKHCDI7C2YAv-QbrqUnZ0g1sNccLuvao0o_AQ')
-            worksheet = sh.worksheet('Sheet1')
+            worksheet = get_worksheet(gscredentials)
             row_data = [current_time, ticket_number, ticket_brand, global_gpt_reply, SC_Status, ticket_status, SC_Status_0]
             worksheet.append_row(row_data)
             #Delete the second last row (not processed yet) from the worksheet
@@ -133,6 +150,20 @@ def lambda_handler(event, context):
                 print(f"PUT API for opening the ticket failed: {update_response.status_code}")
                 print(f"Response content: {update_response.content}")
         
+        #Function to Calculate the Seconds Elapsed From Google Sheets For Re-Runs ONLY
+        def calculate_seconds_elapsed(current_time_new, x):
+            try:
+                if x is None:
+                    x_seconds_elapsed = 1000
+                else:
+                    x_new = datetime.fromisoformat(x.strip('Z')).replace(microsecond=0)
+                    x_seconds_elapsed = round((current_time_new - x_new).total_seconds())
+            except ValueError:
+                x_seconds_elapsed = 1000
+            except TypeError:
+                x_seconds_elapsed = 1000
+            return x_seconds_elapsed
+        
         #Determine Current Time
         current_time = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z' # Get the current time in UTC
         current_time_str = ''.join(current_time) # Convert the current time to a string
@@ -156,9 +187,7 @@ def lambda_handler(event, context):
             }
 
         # Create a connection to the Google Sheets API
-        gc = gspread.authorize(gscredentials)
-        sh = gc.open_by_key('1fyju79jKHCDI7C2YAv-QbrqUnZ0g1sNccLuvao0o_AQ')
-        worksheet = sh.worksheet('Sheet1')
+        worksheet = get_worksheet(gscredentials)
         
         #Write Ticket Number and Curent Time to GSHEET
         write_to_gsheet_no_del(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, SC_Status_0)
@@ -171,8 +200,7 @@ def lambda_handler(event, context):
         last_run = worksheet.cell(last_row-1, 1).value
         #last_status = worksheet.cell(last_row, 6).value
         #print ('last_ticket:', last_ticket)
-        last_run_new = datetime.fromisoformat(last_run.strip('Z')).replace(microsecond=0)
-        last_run_seconds_elapsed = round((current_time_new - last_run_new).total_seconds())
+        last_run_seconds_elapsed = calculate_seconds_elapsed(current_time_new, last_run)
         #print ('last_run_seconds_elapsed:', last_run_seconds_elapsed)   
         
         # Fetch the second last cell values
@@ -180,8 +208,7 @@ def lambda_handler(event, context):
         second_last_run = worksheet.cell(last_row-2, 1).value
         #second_last_status = worksheet.cell(last_row-1, 6).value
         #print ('second_last_ticket:', second_last_ticket)
-        second_last_run_new = datetime.fromisoformat(second_last_run.strip('Z')).replace(microsecond=0)
-        second_last_run_seconds_elapsed = round((current_time_new - second_last_run_new).total_seconds())
+        second_last_run_seconds_elapsed = calculate_seconds_elapsed(current_time_new, second_last_run)
         #print ('second_last_run_seconds_elapsed:', second_last_run_seconds_elapsed)
         
         # Fetch the third last cell values
@@ -189,8 +216,7 @@ def lambda_handler(event, context):
         third_last_run = worksheet.cell(last_row-3, 1).value
         #third_last_status = worksheet.cell(last_row-2, 6).value
         #print ('third_last_ticket:', third_last_ticket)
-        third_last_run_new = datetime.fromisoformat(third_last_run.strip('Z')).replace(microsecond=0)
-        third_last_run_seconds_elapsed = round((current_time_new - third_last_run_new).total_seconds())
+        third_last_run_seconds_elapsed = calculate_seconds_elapsed(current_time_new, third_last_run)
         #print ('third_last_run_seconds_elapsed:', third_last_run_seconds_elapsed)
         
         if ticket_number == last_ticket == second_last_ticket and -60 <= last_run_seconds_elapsed <= 60 and -60 <= second_last_run_seconds_elapsed <= 60:
@@ -203,7 +229,7 @@ def lambda_handler(event, context):
         #     raise Exception("multi-run-hold")
         else:
             pass
-       
+        
         ############################################################################################################
         #### FUNCTIONS ####
             
@@ -843,7 +869,7 @@ def lambda_handler(event, context):
             ticket_status = "hold"
             write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, SC_Status_0)
             put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number, SC_Status, SC_Status_0)
-    
+
         # Check if the last Activity in SC is a No response scenario
         elif hours_elapsed_last_sc_response > 0.3:
         
@@ -1012,7 +1038,7 @@ def lambda_handler(event, context):
             
         elif "multi-run-loop" in str(e):
             print(f"Multi-run-loop on a the ticket {ticket_number} stopped: {str(e)}")
-            SC_Status = "I am being called in a loop. So, I am leaving the ticket open, removing the sc_esc tag and adding the tempo_unsuspend tag for a manual review by an agent."
+            SC_Status = "I am being called in a loop. If I am unable to stop it, I will leaving the ticket open, removing the sc_esc tag and adding the tempo_unsuspend tag for a manual review by an agent."
             ticket_status = "open"
             write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, SC_Status_0)
             put_ticket_on_open(credentials, ticket_number, SC_Status, SC_Status_0)
@@ -1023,11 +1049,3 @@ def lambda_handler(event, context):
             ticket_status = "open"
             write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, SC_Status_0)
             put_ticket_on_open(credentials, ticket_number, SC_Status, SC_Status_0)
-
-# Assuming this is for demonstration purposes outside AWS Lambda
-if __name__ == "__main__":
-    event = {
-        "body": json.dumps({"ticket_number": "4342652"}) # Test ticket number is 4342051/4318902/4333812, callstream 4332550"
-    }
-    context = {}
-    lambda_handler(event, context)
