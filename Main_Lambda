@@ -58,7 +58,7 @@ def lambda_handler(event, context):
         def get_worksheet(gscredentials):
             try:
                 gc = gspread.authorize(gscredentials)
-                sh = gc.open_by_key('1fyju79jKHCDI7C2YAv-QbrqUnZ0g1sNccLuvao0o_AQ')
+                sh = gc.open_by_key('')
                 worksheet = sh.worksheet('Sheet1')
                 return worksheet
             except APIError as e:
