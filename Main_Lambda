@@ -17,6 +17,8 @@ from boto3.dynamodb.conditions import Key
 from datetime import datetime, timedelta
 import pytz
 
+#Authentication
+
 #Google Sheet Setup
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 SPREADSHEET_ID = '1fyju79jKHCDI7C2YAv-QbrqUnZ0g1sNccLuvao0o_AQ'
@@ -53,11 +55,11 @@ def lambda_handler(event, context):
         last_response_text = "No inbound message in SC. The last response time is for the first outbound reply."
         seconds_elapsed_last_outbound_sc_response = 1000
         global_gpt_reply = "No GPT call made"
-        SC_Status_0 = "" # Initial Comment about quick multi sc check
+        openning_comment = "" # Initial Comment about quick multi sc check
         SC_Status = "" # default comment when open sc ==1 or this becomes opening comment for multiopen  sc when open sc>1
-        SC_Status_1 = "" # Only used for appending to the SC_List_Status in new_open_sc >1 scenario
+        SC_Status_multi_append = "" # Only used for appending to the SC_List_Status in new_open_sc >1 scenario
         SC_Status_list =""
-        SC_Status_2 = "" # Closing Comment
+        closing_comment = "" # Closing Comment
         ticket_brand = "Not processed yet"
         ticket_status = "Not processed yet"
         credentials = base64.b64encode(f"ai-zd-integration@trilogy.com/token:{ZENDESK_API_KEY}".encode("utf-8")).decode("utf-8")
@@ -97,10 +99,10 @@ def lambda_handler(event, context):
                     raise  # Re-raise the exception if it's not a quota exceeded error
         
         #Function to write to GSHEET and delete the last row
-        def write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, SC_Status_0, SC_Status_2, SC_Status_list):
+        def write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, openning_comment, closing_comment, SC_Status_list):
             try:
                 worksheet = get_worksheet(gscredentials)
-                row_data = [current_time, ticket_number, ticket_brand, global_gpt_reply, SC_Status, ticket_status, (f"{SC_Status_0}\n\n{SC_Status_list}\n\n{SC_Status_2}")]
+                row_data = [current_time, ticket_number, ticket_brand, global_gpt_reply, SC_Status_list, ticket_status]
                 worksheet.append_row(row_data)
             except APIError as e:
                 if 'APIError' in str(e):
@@ -109,7 +111,7 @@ def lambda_handler(event, context):
                     raise  # Re-raise the exception if it's not a quota exceeded error
         
         #Function to Make the ticket Open
-        def put_ticket_on_open(credentials, ticket_number, SC_Status, SC_Status_0, SC_Status_2, SC_Status_list):
+        def put_ticket_on_open(credentials, ticket_number, SC_Status, openning_comment, closing_comment, SC_Status_list):
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Basic {credentials}"
@@ -120,7 +122,7 @@ def lambda_handler(event, context):
                 "status": "open",
                 "comment": {
                     "body": (
-                        f"SC Automan: {SC_Status_0}\n\n{SC_Status}\n\n{SC_Status_list}\n\n{SC_Status_2}"
+                        f"SC Automan: {openning_comment}\n\n{SC_Status}\n\n{SC_Status_list}\n\n{closing_comment}"
                     ),
                     "public": False
                 },
@@ -498,7 +500,7 @@ def lambda_handler(event, context):
                 print(f"PUT API for opening SC failed: {response.status_code}")
         
         #Function to Put the Ticket On-Hold
-        def put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number, SC_Status, SC_Status_0, SC_Status_2, SC_Status_list):
+        def put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number, SC_Status, openning_comment, closing_comment, SC_Status_list):
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Basic {credentials}"
@@ -520,7 +522,7 @@ def lambda_handler(event, context):
                     "status": "hold",
                     "comment": {
                         "body": (
-                            f"SC Automan: {SC_Status_0}\n\n{SC_Status}\n\n{SC_Status_list}\n\n{SC_Status_2}"
+                            f"SC Automan: {openning_comment}\n\n{SC_Status}\n\n{SC_Status_list}\n\n{closing_comment}"
                         ),
                         "public": False
                     }
@@ -681,7 +683,7 @@ def lambda_handler(event, context):
         print("Default Hours Value", default_hold_hours)
         
         for comment in comments_data['comments']:
-            if comment['author_id'] == 361576897454 and "It has been 10 days since we received the last reply in SC." in comment['body']:
+            if comment['author_id'] == 361576897454 and "It has been 10 days since we received the last reply in SC" in comment['body']:
                 # Extract the number of hours using regex
                 last_240hours_comment_time = comment['created_at']
                 last_240hours_comment_time_str = ''.join(last_240hours_comment_time)
@@ -759,6 +761,83 @@ def lambda_handler(event, context):
                         print(f"Failed to fetch sc_list data after reopening SC: {response.status_code}")
         else:
             pass
+        
+        ############################################################################################################
+        #### QUICK PRE-CHECK FOR CLOSING OLD MULTI-SC ####
+        ############################################################################################################
+        
+        # # Make a GET request to retrieve the ticket SC details
+        # response = session.get(f'https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}/side_conversations')
+        
+        # # Check if the request was successful and retrive SC data
+        # if response.status_code == 200:
+        #     ticket_data_sc_list = response.json()
+        # else:
+        #     print(f"Failed to fetch sc_list data: {response.status_code}")
+
+        # # Check count of closed SCs on the ticket
+        # closed_sc_count = sum(sc['state'] == 'closed' for sc in ticket_data_sc_list['side_conversations'])
+        # print('Closed SC Count:', closed_sc_count)
+        
+        # # Check if a recent response was receieved in a closed SC. If yes then open it.
+        # if closed_sc_count >= 1:
+        #     closed_sc_ids = []
+        #     closed_sc_ids = [sc['id'] for sc in ticket_data_sc_list['side_conversations'] if sc['state'] == 'closed']
+        #     #print('Closed SC IDs:', closed_sc_ids)
+        #     for sc_id in closed_sc_ids:  # Iterate through the open_sc_ids
+        #         get_key_sc_info_light(ticket_number, sc_id, current_time_new)
+        #         last_message_direction, hours_elapsed_last_sc_response = get_key_sc_info_light(ticket_number, sc_id, current_time_new)
+        #         #print('Hours Elapsed Last SC Inbound Response:', hours_elapsed_last_sc_response)
+        #         if last_message_direction == "inbound" and hours_elapsed_last_sc_response <0.3:
+        #             open_sc(credentials, sc_id, ticket_number)
+        #             time.sleep(2)
+        #             response = session.get(f'https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}/side_conversations')
+        #             if response.status_code == 200:
+        #                 ticket_data_sc_list = response.json()
+        #             else:
+        #                 print(f"Failed to fetch sc_list data after reopening SC: {response.status_code}")
+        # else:
+        #     pass
+        
+        # # Check count of open SCs on the ticket
+        # open_sc_count = sum(sc['state'] == 'open' for sc in ticket_data_sc_list['side_conversations'])
+        # print('Open SC Count:', open_sc_count)
+        
+        # if open_sc_count > 1:
+        #     open_old_sc_ids = []
+        #     open_sc_ids = [sc['id'] for sc in ticket_data_sc_list['side_conversations'] if sc['state'] == 'open']
+        #     print('Open SC IDs:', open_sc_ids)
+        #     for sc_id in open_sc_ids:  # Iterate through the open_sc_ids
+        #         get_key_sc_info(ticket_number, sc_id, current_time_new)
+        #         last_message_direction, hours_elapsed_last_sc_response, last_response_text, attachment_in_last_response = get_key_sc_info_medium(ticket_number, sc_id, current_time_new)
+        #         #print('Hours Elapsed Last SC Inbound Response:', hours_elapsed_last_sc_response
+        #         if last_message_direction == "inbound" and hours_elapsed_last_sc_response > default_hold_hours and hours_elapsed_lastcomment < default_hold_hours:
+        #             filename = "GPT_Prompt_05.txt"
+        #             global_gpt_reply = call_gpt(filename)
+        #             #Check if the last message is meaningful
+        #             if "MEANINGFUL" in global_gpt_reply:
+        #                 open_old_sc_ids.append(sc_id)
+        #             elif "MEANINGLESS" in global_gpt_reply and attachment_in_last_response == True:
+        #                 open_old_sc_ids.append(sc_id)
+        #             else:
+        #                 pass
+        #     print('Open Old SC IDs:', open_old_sc_ids)
+        #     subject_open_old_sc = [sc['subject'] for sc in ticket_data_sc_list['side_conversations'] if sc['id'] in open_old_sc_ids]
+        #     #print('Subject Open Old SC:', subject_open_old_sc)
+        #     for sc_id in open_old_sc_ids:
+        #         close_sc(credentials, sc_id, ticket_number)
+            
+        #     # Make a new GET request to retrieve the ticket SC details
+        #     response = session.get(f'https://central-supportdesk.zendesk.com/api/v2/tickets/{ticket_number}/side_conversations')
+        
+        #     # Check if the request was successful and retrive SC data
+        #     if response.status_code == 200:
+        #         new_ticket_data_sc_list = response.json()
+        #     else:
+        #         print(f"Failed to fetch sc_list data: {response.status_code}")
+            
+        #     new_open_sc_count = sum(sc['state'] == 'open' for sc in new_ticket_data_sc_list['side_conversations'])
+        #     print('New Open SC Count:', new_open_sc_count)
             
         ############################################################################################################
         #### MULTI-OPEN SC HANDLING ####
@@ -781,7 +860,7 @@ def lambda_handler(event, context):
             SC_Status = ""
             SC_Status_list = []
             ticket_status_list = []
-            SC_Status_0 = "\n\nI noticed we have the following open SC/s. I'm going to take a closer look..."
+            openning_comment = "\n\nI noticed we have the following open SC/s. I'm going to take a closer look..."
             
             for sc_id in new_open_sc_ids:
                 last_message_direction, hours_elapsed_last_sc_response, recipients, last_sc_response_time, filtered_sc_data_inbound, filtered_sc_data_outbound, seconds_elapsed_last_outbound_response_SC_Automan, sc_subject, seconds_elapsed_last_outbound_sc_response = get_key_sc_info(ticket_number, sc_id, current_time_new)
@@ -802,7 +881,7 @@ def lambda_handler(event, context):
                 # print('Hours Elapsed Last SC Response:', hours_elapsed_last_sc_response)
                 # print('Attachment in Last Response:', attachment_in_last_response)
                 
-                # Check if the last Message in SC is MEANGINGLESS/MEANINGFULL 
+                # Check if the last Message in SC is MEANGINGLESS/MEANINGFULL
                 if hours_elapsed_last_sc_response <= 0.3 and last_response_text != "No inbound message in SC. The last response time is for the first outbound reply.":
                     filename = "GPT_Prompt_05.txt"
                     global_gpt_reply = call_gpt(filename)
@@ -810,31 +889,31 @@ def lambda_handler(event, context):
 
                     if "MEANINGLESS" in global_gpt_reply:
                         if attachment_in_last_response == True:
-                            SC_Status_1 = f"There is a seemingly meaningless reply in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). However, I have detected an attachment in it which could have additional useful infromation."
+                            SC_Status_multi_append = f"There is a seemingly meaningless reply in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). However, I have detected an attachment in it which could have additional useful infromation."
                             ticket_status = "open"
                             ticket_status_list.append(ticket_status)
 
                         else:
                             hold_value = default_hold_hours
-                            SC_Status_1 = f"There is a meaningless reply in the following SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id})"
+                            SC_Status_multi_append = f"There is a meaningless reply in the following SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id})"
                             onhold_reason = f"SC Automation - Meaningless Response in SC, putting back on for {default_hold_hours} hours"
                             ticket_status = "hold"
                             ticket_status_list.append(ticket_status)
 
                     elif "MEANINGFUL" in global_gpt_reply:
-                        SC_Status_1 = f"There is a meaningful response received in the following SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). So, I am closing it and leaving the ticket open for an agent to review manually. Please REOPEN the SC if we are following up or waiting to hear back on it again."
+                        SC_Status_multi_append = f"There is a meaningful response received in the following SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). So, I am closing it and leaving the ticket open for an agent to review manually. Please REOPEN the SC if we are following up or waiting to hear back on it again."
                         ticket_status = "open"
                         ticket_status_list.append(ticket_status)
                         close_sc(credentials, sc_id, ticket_number)
                     
                     else:
-                        SC_Status_1 = "Something went wrong while checking things with GPT. I am leaving the ticket open for a manual review by an agent."
+                        SC_Status_multi_append = "Something went wrong while checking things with GPT. I am leaving the ticket open for a manual review by an agent."
                         ticket_status = "open"
                         ticket_status_list.append(ticket_status)
                 
                 elif hours_elapsed_last_sc_response <= 0.3 and last_response_text == "No inbound message in SC. The last response time is for the first outbound reply.":
                     hold_value = default_hold_hours
-                    SC_Status_1 = f"There is no response in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). It looks like we never received any response to date. Given that the last response sent by us was less than hour ago, I am putting the ticket on hold for {default_hold_hours} hours."
+                    SC_Status_multi_append = f"There is no response in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). It looks like we never received any response to date. Given that the last response sent by us was less than hour ago, I am putting the ticket on hold for {default_hold_hours} hours."
                     onhold_reason = f"SC Automation - No Response in SC to date, putting back on for {default_hold_hours} hours"
                     ticket_status = "hold"
                     ticket_status_list.append(ticket_status)
@@ -844,7 +923,7 @@ def lambda_handler(event, context):
                 
                     # If a public/private comment added in the last few minutes
                     if hours_elapsed_lastcomment < 0.3:
-                        SC_Status_1 = f"There is no response in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). However, a potentially meaningful public/private comment was added in the last few minutes."
+                        SC_Status_multi_append = f"There is no response in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). However, a potentially meaningful public/private comment was added in the last few minutes."
                         global_gpt_reply = "No GPT call made"
                         ticket_status = "open"
                         ticket_status_list.append(ticket_status)
@@ -855,7 +934,7 @@ def lambda_handler(event, context):
                         # SC reply by Support Opened the ticket
                         if seconds_elapsed_last_outbound_sc_response <= 90:
                             hold_value = default_hold_hours
-                            SC_Status_1 = f"There is no response in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). However, I see that we sent an outbound message in the last few minutes."
+                            SC_Status_multi_append = f"There is no response in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). However, I see that we sent an outbound message in the last few minutes."
                             onhold_reason = f"SC Automation - No Response in SC, we just followed up"
                             ticket_status = "hold"
                             ticket_status_list.append(ticket_status)
@@ -863,7 +942,7 @@ def lambda_handler(event, context):
                         # Something unknown opened the ticket and it's been less than the default hours
                         elif hours_elapsed_last_sc_response < default_hold_hours:
                             hold_value = default_hold_hours
-                            SC_Status_1 = f"There is no response in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). I do not see any valuable public or private comments added in the last few minutes nor have we sent a followup message in the SC in the last few minutes. Moreover, I see that it has been less than {default_hold_hours} hours since we last put the ticket on hold."
+                            SC_Status_multi_append = f"There is no response in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). I do not see any valuable public or private comments added in the last few minutes nor have we sent a followup message in the SC in the last few minutes. Moreover, I see that it has been less than {default_hold_hours} hours since we last put the ticket on hold."
                             onhold_reason = f"SC Automation - No Response in SC but it has been less than {default_hold_hours} hours"
                             ticket_status = "hold"
                             ticket_status_list.append(ticket_status)
@@ -871,18 +950,18 @@ def lambda_handler(event, context):
                         # Timer Opened the ticket and ticket_brand  is NOT "CallStream Support" OR "CityNumbers Support"
                         elif hours_elapsed_last_sc_response >= default_hold_hours and brand_id not in (360002486020, 360002499439):
                             if hours_elapsed_last_sc_response > 240 and (hours_elapsed_last_240hours_comment == 0 or hours_elapsed_last_240hours_comment > 239):
-                                SC_Status_1 = f"It has been 10 days since we received the last reply in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). We should review if the SC should be closed.\n"
+                                SC_Status_multi_append = f"It has been 10 days since we received the last reply in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). We should review if the SC should be closed.\n"
                                 ticket_status = "open"
                                 ticket_status_list.append(ticket_status)
                 
                             else:
                                 if filtered_sc_data_outbound["events"][-1]['message']['from']['email'] == 'ai-zd-integration@trilogy.com' and seconds_elapsed_last_outbound_response_SC_Automan <= 180 and seconds_elapsed_last_sc_automan_3min_in <= 180:
-                                    SC_Status_1 = "It seems like I'm being called in a loop! So I am leaving the ticket open for a manual review by an agent.\n"
+                                    SC_Status_multi_append = "It seems like I'm being called in a loop! So I am leaving the ticket open for a manual review by an agent.\n"
                                     ticket_status = "open"
                                     ticket_status_list.append(ticket_status)
                                     
                                 elif filtered_sc_data_outbound["events"][-1]['message']['from']['email'] == 'ai-zd-integration@trilogy.com' and seconds_elapsed_last_outbound_response_SC_Automan <= 180:
-                                    SC_Status_1 = "I noticed that the most recent response in the SC was mine, less than 3 minutes ago. This was likely a Lambda double-run that can be ignored. So I am refraining from sending any more response in SC."
+                                    SC_Status_multi_append = "I noticed that the most recent response in the SC was mine, less than 3 minutes ago. This was likely a Lambda double-run that can be ignored. So I am refraining from sending any more response in SC."
                                     ticket_status = "hold"
                                     ticket_status_list.append(ticket_status)
                                     onhold_reason = f"SC Automation - No Response in SC, putting back on for {default_hold_hours} hours"
@@ -890,7 +969,7 @@ def lambda_handler(event, context):
                                     
                                 else:
                                     hold_value = default_hold_hours
-                                    SC_Status_1 = f"There has been no response in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). Since it has been {default_hold_hours} hours from the last hold, I am sending a follow-up in SC."
+                                    SC_Status_multi_append = f"There has been no response in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). Since it has been {default_hold_hours} hours from the last hold, I am sending a follow-up in SC."
                                     onhold_reason = f"SC Automation - No Response in SC in {default_hold_hours} hours - Follow up in SC"
                                     sc_reply = f"Dear Team,\n\nWe are eagerly awaiting your response. Please provide an update at your earliest convenience.\n\nThank you."
                                     ticket_status = "hold"
@@ -904,7 +983,7 @@ def lambda_handler(event, context):
                         elif hours_elapsed_last_sc_response >= default_hold_hours and brand_id in (360002486020, 360002499439):
 
                             if hours_elapsed_last_sc_response > 240 and (hours_elapsed_last_240hours_comment == 0 or hours_elapsed_last_240hours_comment > 239):
-                                SC_Status_1 = f"It has been 10 days since we received the last reply in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). We should review if the SC should be closed."
+                                SC_Status_multi_append = f"It has been 10 days since we received the last reply in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). We should review if the SC should be closed."
                                 ticket_status = "open"
                                 ticket_status_list.append(ticket_status)        
                             
@@ -914,25 +993,25 @@ def lambda_handler(event, context):
                                 print('GPT:', global_gpt_reply)
                                 
                                 if global_gpt_reply == "NO":
-                                    SC_Status = f"There has been no response in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). This is CallStream/CityNumbers and it has been {default_hold_hours} hours since the last hold. So, I engaged GPT to determine if a follow-up is needed but GPT answered, no. Therefore, we should review manually for the next steps."
+                                    SC_Status_multi_append = f"There has been no response in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). This is CallStream/CityNumbers and it has been {default_hold_hours} hours since the last hold. So, I engaged GPT to determine if a follow-up is needed but GPT answered, no. Therefore, we should review manually for the next steps."
                                     ticket_status = "open"
                                     ticket_status_list.append(ticket_status)
 
                                 elif global_gpt_reply == "YES":
                                     if filtered_sc_data_outbound["events"][-1]['message']['from']['email'] == 'ai-zd-integration@trilogy.com' and seconds_elapsed_last_outbound_response_SC_Automan <= 180 and seconds_elapsed_last_sc_automan_3min_in <= 180:
-                                        SC_Status_1 = "It seems like I'm being called in a loop! So I am leaving the ticket open.\n"
+                                        SC_Status_multi_append = "It seems like I'm being called in a loop! So I am leaving the ticket open.\n"
                                         ticket_status = "open"
                                         ticket_status_list.append(ticket_status)
                                         
                                     elif filtered_sc_data_outbound["events"][-1]['message']['from']['email'] == 'ai-zd-integration@trilogy.com' and seconds_elapsed_last_outbound_response_SC_Automan <= 180:
-                                        SC_Status_1 = "I noticed that the most recent response in the SC was mine, less than 3 minutes ago. This was likely a Lambda double-run that can be ignored. So I am refraining from sending any more response in SC."
+                                        SC_Status_multi_append = "I noticed that the most recent response in the SC was mine, less than 3 minutes ago. This was likely a Lambda double-run that can be ignored. So I am refraining from sending any more response in SC."
                                         hold_value = default_hold_hours
                                         onhold_reason = f"SC Automation - No Response in SC, putting back on for {default_hold_hours} hours"
                                         ticket_status = "hold"
                                         ticket_status_list.append(ticket_status)
                                         
                                     else:
-                                        SC_Status_1 = f"There is no response in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). This is CallStream/CityNumbers and it has been {default_hold_hours} hours since last hold. So I engaged GPT to determine if a follow up is needed. GPT answered, yes. Therefore, I am following up in the SC."
+                                        SC_Status_multi_append = f"There is no response in SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). This is CallStream/CityNumbers and it has been {default_hold_hours} hours since last hold. So I engaged GPT to determine if a follow up is needed. GPT answered, yes. Therefore, I am following up in the SC."
                                         hold_value = default_hold_hours
                                         onhold_reason = f"SC Automation - No Response in SC in {default_hold_hours} hours - CallStream/CityNumbers Support"
                                         sc_reply = f"Dear Team,\n\nWe are eagerly awaiting your response. Please provide an update at your earliest convenience.\n\nThank you."
@@ -944,24 +1023,24 @@ def lambda_handler(event, context):
                                         time.sleep(30)
                                     
                                 else:
-                                    SC_Status_1 = f"Something went wrong while checking things with GPT for the SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). I am leaving the ticket open for a manual review by an agent."
+                                    SC_Status_multi_append = f"Something went wrong while checking things with GPT for the SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). I am leaving the ticket open for a manual review by an agent."
                                     ticket_status = "open"
                                     ticket_status_list.append(ticket_status)
                         
                         # Something unknown opened the ticket and Previous conditions did not satisfy
                         else:
-                            SC_Status_1 = f"Looks like I lost track of things while checking the SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). I am leaving the ticket open for a manual review by an agent. I will watch and learn![3]"
+                            SC_Status_multi_append = f"Looks like I lost track of things while checking the SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). I am leaving the ticket open for a manual review by an agent. I will watch and learn![3]"
                             ticket_status = "open"
                             ticket_status_list.append(ticket_status)
                     
                     # Something unknown opened the ticket and Previous conditions did not satisfy
                     else:
-                        SC_Status_1 = f"Looks like I lost track of things while checking the SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). I am leaving the ticket open for a manual review by an agent. I will watch and learn![4]"
+                        SC_Status_multi_append = f"Looks like I lost track of things while checking the SC: [{sc_subject}](https://central-supportdesk.zendesk.com/agent/tickets/{ticket_number}/conversations/{sc_id}). I am leaving the ticket open for a manual review by an agent. I will watch and learn![4]"
                         ticket_status = "open"
                         ticket_status_list.append(ticket_status)
                         
                 # Append the SC_Status to the list
-                SC_Status_list.append(SC_Status_1)
+                SC_Status_list.append(SC_Status_multi_append)
             
             def clean_status_list(SC_Status_list):
                 # Create a new list to hold the cleaned statuses
@@ -990,21 +1069,21 @@ def lambda_handler(event, context):
 
             if "open" in ticket_status_list:
                 ticket_status = "open"
-                SC_Status_2 = "\n\nGiven the above, I have put the ticket in an open state so an agent can review it manually."
-                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, SC_Status_0, SC_Status_2, SC_Status_list)
-                put_ticket_on_open(credentials, ticket_number, SC_Status, SC_Status_0, SC_Status_2, SC_Status_list)
+                closing_comment = "\n\nGiven the above, I have put the ticket in an open state so an agent can review it manually. Please remember you can receive replies on closed SCs and reopen them anytime. Lastly, you can share improvement feedback in columns 'G', 'H' and 'I' in [SC Automan Log](https://docs.google.com/spreadsheets/d/1fyju79jKHCDI7C2YAv-QbrqUnZ0g1sNccLuvao0o_AQ/edit?usp=sharing) which will help me learn and improve."
+                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, openning_comment, closing_comment, SC_Status_list)
+                put_ticket_on_open(credentials, ticket_number, SC_Status, openning_comment, closing_comment, SC_Status_list)
                 
             elif "hold" in ticket_status_list and "open" not in ticket_status_list:
                 ticket_status = "hold"
-                SC_Status_2 = "\n\nGiven the above, I have put the ticket on hold."
-                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, SC_Status_0, SC_Status_2, SC_Status_list)
-                put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number, SC_Status, SC_Status_0, SC_Status_2, SC_Status_list)
+                closing_comment = "\n\nGiven the above, I have put the ticket on hold."
+                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, openning_comment, closing_comment, SC_Status_list)
+                put_ticket_on_hold(credentials, hold_value, onhold_reason, ticket_number, SC_Status, openning_comment, closing_comment, SC_Status_list)
             
             else: # ticket_status_list is empty for some werd reason.
                 ticket_status = "open"
-                SC_Status_2 = "Hmm, something seems weird. I'll keep the ticket open so an agent can take a look. I'll watch and learn!"
-                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, SC_Status_0, SC_Status_2, SC_Status_list)
-                put_ticket_on_open(credentials, ticket_number, SC_Status, SC_Status_0, SC_Status_2, SC_Status_list)
+                closing_comment = "Hmm, something seems weird. I'll keep the ticket open so an agent can take a look. I'll watch and learn!"
+                write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, openning_comment, closing_comment, SC_Status_list)
+                put_ticket_on_open(credentials, ticket_number, SC_Status, openning_comment, closing_comment, SC_Status_list)
                 
         ##############################################################################################
         #### NO OPEN SCs ####
@@ -1014,8 +1093,8 @@ def lambda_handler(event, context):
             SC_Status = "I couldn't find an open SC, so I won't be able to proceed with the ticket."
             global_gpt_reply = "No GPT call made. No open SC found."
             ticket_status = "open"
-            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, SC_Status_0, SC_Status_2, SC_Status_list)
-            put_ticket_on_open(credentials, ticket_number, SC_Status, SC_Status_0, SC_Status_2, SC_Status_list)
+            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, openning_comment, closing_comment, SC_Status_list)
+            put_ticket_on_open(credentials, ticket_number, SC_Status, openning_comment, closing_comment, SC_Status_list)
             return 
     
     ##############################################################################################
@@ -1026,17 +1105,17 @@ def lambda_handler(event, context):
         if "No ticket_number provided in the request body" in str(e):
             SC_Status = "No ticket_number provided in the request body"
             print(f"{str(e)}")
-            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, SC_Status_0, SC_Status_2, SC_Status_list)
+            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, openning_comment, closing_comment, SC_Status_list)
             
         
         elif "Multiple runs detected" in str(e):
             SC_Status = "Lamda multi-run detected and stopped using DBB."
             print(f"{str(e)}")
-            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, SC_Status_0, SC_Status_2, SC_Status_list)
+            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, openning_comment, closing_comment, SC_Status_list)
             
         else:
             print(f"Lamda exception occurred on the ticket {ticket_number}: {str(e)}")
             SC_Status = "I encountered a bit of a snag! So, I am leaving the ticket open for a manual review by an agent."
             ticket_status = "open"
-            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, SC_Status_0, SC_Status_2, SC_Status_list)
-            put_ticket_on_open(credentials, ticket_number, SC_Status, SC_Status_0, SC_Status_2, SC_Status_list)
+            write_to_gsheet(gscredentials, current_time, ticket_number, ticket_brand, SC_Status, global_gpt_reply, ticket_status, openning_comment, closing_comment, SC_Status_list)
+            put_ticket_on_open(credentials, ticket_number, SC_Status, openning_comment, closing_comment, SC_Status_list)
