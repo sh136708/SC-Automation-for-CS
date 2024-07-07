@@ -19,7 +19,7 @@
 
 - A last response is deemed MEANINGFUL if it:
   - Directly confirms, approves, or rejects a request.
-  - Provides any update on the status of an issue or request, even if the update is preliminary or indicates that further action is needed.
+  - Provides a specific update on the status of an issue or request, including any concrete actions taken or planned, even if preliminary. This update should contain new information that indicates progress or a change in status.
   - Asks for additional information necessary from the support team to move forward or resolve a request.
   - Here are some examples of MEANINGFUL last responses:
     - The response is a confirmation, approval, or rejection of any kind. Here are a few examples:
@@ -42,6 +42,7 @@
       - "We will directly coordinate with the customer. Thank you."
       - "The service has been canceled."
       - "Please inform the customer of the following ..."
+      - "Please refer comments on the ticket - https://workstation-df.atlassian.net/browse/SMBBIZOPS-1628." 
       - "We have redirected your request to another department. Please liaise with them for further updates."
         - The above is an example where the separate team has transferred the request to another department and provides clear direction for follow-up.
       - "Please reach out to the other team."
@@ -54,6 +55,8 @@
         - The above is an example where they are referring to an attachment which has meaningful information that needs to be reviewed.
       - "01264568550 - 559 01264568560 - 569 01264568570 - 577 01264568548 - 549 SP10 5RW LCP BT."
         - The above is an example where specific details are provided.
+      - "Quebee is no longer with the company. This was forwarded to me. The correct PO is 25862. I will also update the CFIN ticket with this information."
+        - The above is an example where specific details are provided regarding the PO which can allow us to review and look into next possible actions.
     - The response is a question or is asking for more information from the support team for the separate team to reach a decision:
       - "Ask the customer to share evidence."
       - "We need a previous invoice copy."
@@ -70,7 +73,7 @@
 
 - A last response is deemed MEANINGLESS if it:
   - Provides no new information regarding the request or issue to allow the support team to take any action.
-  - Indicates an action is pending without specifying any concrete steps being taken.
+  - Indicates an action is pending without providing any specific information about what has been done, what will be done, or when it will be done. These responses lack any concrete details about progress or next steps.
   - Directs to someone else who may be responsible without any accompanying confirmation of action or follow-up.
   - Contains only internal communications among the separate team members that do not advance the resolution of the request.
   - Consists solely of acknowledgment, generic or automated replies that do not address the specifics of the support team's inquiry.
@@ -101,4 +104,5 @@
 last_response_text
 
 ### RESPONSE GUIDELINES:
-Strictly reply with only one word: MEANINGFUL or MEANINGLESS
+1. Strictly reply with only one word: MEANINGFUL or MEANINGLESS
+2. Add a colon and provide a brief one-sentence explanation of why you classified the response as such based on the provided criteria. DO NOT use the "meaningful" or "meaningless" words in this one-sentence explanation.
