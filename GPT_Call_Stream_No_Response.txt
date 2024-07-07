@@ -8,4 +8,8 @@ Context: You're part of a support team working on Zendesk. A standard process in
 Determine, based on the content of the side conversation below, whether or not further side conversation follow-up is required. Reply only with one word: YES if further follow-up is required, NO if not.
 
 ### SIDE CONVERSATION
-preview_text
+last_response_text
+
+### RESPONSE GUIDELINES:
+1. Strictly reply with only one word: YES or NO
+2. Add a colon and provide a brief one-sentence explanation of why you classified the response as such based on the provided criteria. DO NOT use the "yes" or "no" words in this one-sentence explanation.
